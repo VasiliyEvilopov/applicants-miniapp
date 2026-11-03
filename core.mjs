@@ -3,7 +3,7 @@ export const kindOf = s => isPhone(s) ? 'p' : 'u';
 export const norm = s => isPhone(s) ? s.replace(/\D/g,'').replace(/^8(?=\d{10}$)/,'7') : s.replace(/^@/,'').toLowerCase();
 export const id = () => crypto.randomUUID();
 export function add(data,text,name='',mixed=false,dedupe=true) {
- const known = new Set([...data.stock.flatMap(b=>b.items),...data.issued.flatMap(t=>[...t.users,...t.phones])].map(norm));
+ const known = new Set(data.stock.flatMap(b=>b.items).map(norm));
  let duplicates=0; const fresh=[];
  for(const line of text.split(/\r?\n/).map(x=>x.trim()).filter(Boolean)) {
   if(dedupe && known.has(norm(line))) { duplicates++;continue; } known.add(norm(line));fresh.push(line);
