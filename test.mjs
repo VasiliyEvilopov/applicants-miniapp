@@ -75,3 +75,37 @@ test('ordinary issuance writes one key and replays on reopen', async () => {
   await store.save(data);
   assert.deepEqual(await new CloudStore(api).load(), data);
 });
+
+test('adding a batch writes only new contacts and keeps cloud operations in order', async () => {
+  const api = fakeCloud();
+  const store = new CloudStore(api);
+  const data = await store.load();
+  add(data, '@repeat\n@other');
+  await store.save(data);
+  const first = take(data, 1, 0);
+  await store.saveIssue(data, {users: 1, phones: 0, id: first.id, takenAt: first.takenAt});
+
+  const root = 'applicants_v1';
+  const previous = new Map(api.map);
+  const oldBatchCount = data.stock.length;
+  assert.deepEqual(add(data, '@repeat\n@other\n79161234567'), {added: 2, duplicates: 1});
+  const batches = data.stock.slice(oldBatchCount);
+  api.fail = true;
+  await assert.rejects(() => store.saveAddition(data, batches), /offline/);
+  assert.equal(api.map.get(root), previous.get(root));
+  assert.equal((await new CloudStore(api).load()).stock.length, oldBatchCount);
+  api.fail = false;
+  await store.saveAddition(data, batches);
+  assert.equal(api.map.size, previous.size + 1);
+  for (const [key, value] of previous) {
+    if (key !== root) assert.equal(api.map.get(key), value);
+  }
+  assert.deepEqual(await new CloudStore(api).load(), data);
+
+  const batchId = batches[0].id;
+  const second = take(data, 0, 0, batchId);
+  await store.saveIssue(data, {users: 0, phones: 0, batchId, id: second.id, takenAt: second.takenAt});
+  assert.deepEqual(await new CloudStore(api).load(), data);
+  await store.save(data);
+  assert.deepEqual(await new CloudStore(api).load(), data);
+});

@@ -1,5 +1,5 @@
-import {CloudStore,LocalStore,EMPTY,validate} from './storage.mjs?v=3';
-import {add,take,restore,isPhone,sort} from './core.mjs?v=3';
+import {CloudStore,LocalStore,EMPTY,validate} from './storage.mjs?v=4';
+import {add,take,restore,isPhone,sort} from './core.mjs?v=4';
 const $=id=>document.getElementById(id),tg=window.Telegram?.WebApp;
 const inTelegram=!!(tg?.initData && tg?.initDataUnsafe?.user);
 let store,data=EMPTY(),ready=false,busy=false,sortResult={result:'',phones:[],duplicates:0},currentIssue=null;
@@ -38,12 +38,12 @@ function render(){
  $('intake').querySelector('button[type=submit]').disabled=!ready||busy;$('export').disabled=!ready||busy;$('refresh').disabled=busy;$('import').disabled=!ready||busy;updateTake();intakeHint();
 }
 async function mutate(fn,success,save=(draft)=>store.save(draft)){
- if (!ready || busy) return;
+ if (!ready || busy) return false;
  busy = true;
  updateTake();
  setStatus('Сохранение…');
- try{const draft=structuredClone(data),result=fn(draft);await save(draft,result);data=draft;notice('');setStatus(store.label+' · сохранено');success?.(result);}
- catch(error){notice(error.message,true);setStatus('Не удалось сохранить',true);}
+ try{const draft=structuredClone(data),result=fn(draft);await save(draft,result);data=draft;notice('');setStatus(store.label+' · сохранено');success?.(result);return true;}
+ catch(error){notice(error.message,true);setStatus('Не удалось сохранить',true);return false;}
  finally{busy=false;render();}
 }
 async function reload(){
@@ -83,7 +83,36 @@ function issueContacts(users, phones, batchId = null) {
 }
 $('take').onclick=()=>issueContacts(wanted('u'),wanted('p'));
 $('intake-text').oninput=intakeHint;$('dedupe').onchange=intakeHint;
-$('intake').onsubmit=async e=>{e.preventDefault();const text=$('intake-text').value;if(!text.trim()){toast('Вставьте список контактов.');return;}await mutate(d=>add(d,text,$('batch-name').value,$('mixed').checked,$('dedupe').checked),r=>{if(r.added){$('intake-text').value='';$('batch-name').value='';}toast(`Добавлено: ${r.added} · дублей: ${r.duplicates}`);});};
+$('intake').onsubmit=async e=>{
+ e.preventDefault();
+ if(!ready || busy)return;
+ const text=$('intake-text').value,name=$('batch-name').value;
+ const feedback=$('intake-feedback');
+ feedback.hidden=false;
+ feedback.classList.remove('error');
+ if(!text.trim()){feedback.textContent='Вставьте список контактов.';return;}
+ const submit=e.currentTarget.querySelector('button[type=submit]');
+ submit.disabled=true;
+ feedback.textContent='Сохраняем партию…';
+ const saved=await mutate(
+  draft=>add(draft,text,name,$('mixed').checked,$('dedupe').checked),
+  result=>{
+   if(result.added && $('intake-text').value===text && $('batch-name').value===name){
+    $('intake-text').value='';
+    $('batch-name').value='';
+   }
+   feedback.textContent=`Добавлено: ${result.added} · дублей: ${result.duplicates}`;
+  },
+  (draft,result)=>{
+   if(!result.added)return;
+   return store.saveAddition ? store.saveAddition(draft,draft.stock.slice(data.stock.length)) : store.save(draft);
+  },
+ );
+ if(!saved){
+  feedback.textContent=$('notice').textContent;
+  feedback.classList.add('error');
+ }
+};
 bindFile('intake-file',(text)=>{$('intake-text').value=text;intakeHint();toast('Список загружен. Проверьте и добавьте на склад.');});
 bindFile('sort-file',(text)=>{$('sort-input').value=text;runSort();});
 $('output-close').onclick=()=>$('output-dialog').close();$('output-copy').onclick=()=>copy($('output-text').value);$('output-download').onclick=()=>download(`issue-${currentIssue.id}.txt`,$('output-text').value);

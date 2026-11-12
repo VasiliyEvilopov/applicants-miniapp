@@ -1,4 +1,4 @@
-import {take} from './core.mjs?v=3';
+import {take} from './core.mjs?v=4';
 
 /* Personal storage: GitHub serves code; contact data stays in the browser or Telegram. */
 export const EMPTY = () => ({stock: [], issued: []});
@@ -79,6 +79,19 @@ function chunkKeys(manifest) {
   return Array.from({length: manifest.count}, (_, i) => `${ROOT}_${manifest.gen}_${i}`);
 }
 
+function storedKeys(manifest) {
+  const keys = chunkKeys(manifest);
+  for (const operation of manifest?.operations ?? []) {
+    if (operation.batches) keys.push(...chunkKeys(operation.batches));
+  }
+  return keys;
+}
+
+function validSnapshot(snapshot) {
+  return snapshot && /^[a-z0-9_-]+$/.test(snapshot.gen) &&
+    Number.isInteger(snapshot.count) && snapshot.count >= 1 && snapshot.count <= MAX_CHUNKS;
+}
+
 export class CloudStore {
   constructor(api) {
     this.api = api;
@@ -99,15 +112,21 @@ export class CloudStore {
     } catch {
       throw Error('Не удалось прочитать облачный склад. Не перезаписывайте его.');
     }
-    const journal = manifest?.v === 3 && Array.isArray(manifest.issues) &&
+    const journal = (manifest?.v === 3 && Array.isArray(manifest.issues) ||
+      manifest?.v === 4 && Array.isArray(manifest.operations)) &&
       ['json', 'gzip'].includes(manifest.encoding);
     const supported = journal || manifest?.v === 1 || (manifest?.v === 2 && manifest.encoding === 'gzip');
-    if (!supported || !/^[a-z0-9_-]+$/.test(manifest.gen) ||
-        !Number.isInteger(manifest.count) || manifest.count < 1 || manifest.count > MAX_CHUNKS) {
+    if (!supported || !validSnapshot(manifest)) {
       throw Error('Повреждена запись облачного склада.');
     }
 
-    const keys = chunkKeys(manifest);
+    const operations = manifest.operations ?? manifest.issues ?? [];
+    for (const {batches} of operations) {
+      if (batches && (!validSnapshot(batches) || !['json', 'gzip'].includes(batches.encoding))) {
+        throw Error('Повреждена запись облачной партии.');
+      }
+    }
+    const keys = storedKeys(manifest);
     const values = {};
     for (let i = 0; i < keys.length; i += 64) {
       Object.assign(values, await callCloud(this.api, 'getItems', keys.slice(i, i + 64)));
@@ -117,12 +136,16 @@ export class CloudStore {
       throw Error('Склад загрузился не полностью. Повторите открытие.');
     }
 
-    const payload = keys.map(key => values[key]).join('');
-    if (await digest(payload) !== manifest.hash) throw Error('Не прошла проверка целостности склада.');
-    const text = await decodeSnapshot(payload, manifest.encoding ?? 'json');
-    const data = validate(JSON.parse(text));
-    if (journal) {
-      for (const {users, phones, batchId, id, takenAt} of manifest.issues) {
+    const read = async snapshot => {
+      const payload = chunkKeys(snapshot).map(key => values[key]).join('');
+      if (await digest(payload) !== snapshot.hash) throw Error('Не прошла проверка целостности склада.');
+      return JSON.parse(await decodeSnapshot(payload, snapshot.encoding ?? 'json'));
+    };
+    const data = validate(await read(manifest));
+    for (const {batches, users, phones, batchId, id, takenAt} of operations) {
+      if (batches) {
+        data.stock.push(...validate({stock: await read(batches), issued: []}).stock);
+      } else {
         take(data, users, phones, batchId, {id, takenAt});
       }
     }
@@ -132,7 +155,7 @@ export class CloudStore {
 
   async cleanOldChunks(previousKeys) {
     const revision = await callCloud(this.api, 'getItem', ROOT);
-    const active = new Set(chunkKeys(revision ? JSON.parse(revision) : null));
+    const active = new Set(storedKeys(revision ? JSON.parse(revision) : null));
     const keys = await callCloud(this.api, 'getKeys');
     const obsolete = new Set(previousKeys.filter(key => !active.has(key)));
     for (const key of keys) {
@@ -151,30 +174,55 @@ export class CloudStore {
 
     const revision = this.revision;
     const previous = JSON.parse(revision);
+    const journal = previous.v === 4
+      ? {operations: [...previous.operations, operation]}
+      : {v: 3, issues: [...(previous.issues ?? []), operation]};
     const next = JSON.stringify({
       ...previous,
-      v: 3,
+      ...journal,
       encoding: previous.encoding ?? 'json',
-      issues: [...(previous.issues ?? []), operation],
     });
     // Telegram limits each value to 4096 characters. A full save compacts the journal.
     if (next.length > 4000) return this.save(data);
 
-    if (await callCloud(this.api, 'getItem', ROOT) !== revision) {
+    await this.publish(revision, next);
+  }
+
+  async saveAddition(data, batches) {
+    if (!batches.length) return;
+    if (!this.revision) return this.save(data);
+
+    const revision = this.revision;
+    const {issues, operations = issues ?? [], ...base} = JSON.parse(revision);
+    const stock = validate({stock: batches, issued: []}).stock;
+    const {snapshot, chunks} = await this.prepareChunks(stock);
+    const next = JSON.stringify({
+      ...base,
+      v: 4,
+      encoding: base.encoding ?? 'json',
+      operations: [...operations, {batches: snapshot}],
+    });
+    if (next.length > 4000 || storedKeys(JSON.parse(next)).length > 500) return this.save(data);
+
+    await this.checkRevision(revision);
+    await this.writeChunks(snapshot, chunks);
+    await this.publish(revision, next);
+  }
+
+  async checkRevision(revision) {
+    if ((await callCloud(this.api, 'getItem', ROOT) ?? '') !== revision) {
       throw Error('Склад изменён на другом устройстве. Обновите данные перед продолжением.');
     }
+  }
 
+  async publish(revision, next) {
+    await this.checkRevision(revision);
     await callCloud(this.api, 'setItem', ROOT, next);
     this.revision = next;
   }
 
-  async save(data) {
-    if (this.revision === undefined) throw Error('Сначала загрузите склад.');
-    const revision = this.revision;
-    const current = await callCloud(this.api, 'getItem', ROOT);
-    if (current !== revision) throw Error('Склад изменён на другом устройстве. Обновите данные перед продолжением.');
-
-    const {payload, encoding} = await encodeSnapshot(JSON.stringify(validate(data)));
+  async prepareChunks(data) {
+    const {payload, encoding} = await encodeSnapshot(JSON.stringify(data));
     const chunks = [];
     for (let i = 0; i < payload.length; i += CHUNK_SIZE) chunks.push(payload.slice(i, i + CHUNK_SIZE));
     if (chunks.length > MAX_CHUNKS) {
@@ -182,24 +230,29 @@ export class CloudStore {
     }
 
     const gen = Date.now().toString(36) + '-' + crypto.randomUUID().replaceAll('-', '');
-    const manifest = {v: encoding === 'gzip' ? 2 : 1, gen, count: chunks.length,
-      hash: await digest(payload), savedAt: Date.now()};
-    if (encoding === 'gzip') manifest.encoding = encoding;
-    const keys = chunkKeys(manifest);
+    const snapshot = {gen, count: chunks.length, hash: await digest(payload), encoding};
+    return {snapshot, chunks};
+  }
+
+  async writeChunks(snapshot, chunks) {
+    const keys = chunkKeys(snapshot);
     for (let i = 0; i < chunks.length; i += 4) {
       await Promise.all(chunks.slice(i, i + 4).map((part, n) =>
         callCloud(this.api, 'setItem', keys[i + n], part)));
     }
-    if (await callCloud(this.api, 'getItem', ROOT) !== revision) {
-      throw Error('Склад изменён на другом устройстве. Обновите данные.');
-    }
+  }
 
-    const next = JSON.stringify(manifest);
+  async save(data) {
+    if (this.revision === undefined) throw Error('Сначала загрузите склад.');
+    const revision = this.revision;
+    await this.checkRevision(revision);
+    const {snapshot, chunks} = await this.prepareChunks(validate(data));
+    const manifest = {...snapshot, v: snapshot.encoding === 'gzip' ? 2 : 1, savedAt: Date.now()};
+    await this.writeChunks(snapshot, chunks);
     // Publish the new snapshot only after every chunk has been saved.
-    await callCloud(this.api, 'setItem', ROOT, next);
-    this.revision = next;
+    await this.publish(revision, JSON.stringify(manifest));
     // Cleanup can wait. An interrupted cleanup is picked up by a later save.
-    this.cleanOldChunks(chunkKeys(current ? JSON.parse(current) : null)).catch(() => {});
+    this.cleanOldChunks(storedKeys(revision ? JSON.parse(revision) : null)).catch(() => {});
     return data;
   }
 }
