@@ -1,4 +1,4 @@
-import {CloudStore,LocalStore,EMPTY,validate} from './storage.mjs';
+import {CloudStore,LocalStore,EMPTY,validate} from './storage.mjs?v=2';
 import {add,take,restore,isPhone,sort} from './core.mjs';
 const $=id=>document.getElementById(id),tg=window.Telegram?.WebApp;
 const inTelegram=!!(tg?.initData && tg?.initDataUnsafe?.user);
@@ -12,7 +12,7 @@ function switchView(view){for(const name of ['stock','sort','history'])$('view-'
 function counts(){let u=0,p=0;for(const b of data.stock)for(const x of b.items)isPhone(x)?p++:u++;return {u,p};}
 function wanted(k){const v=$('take-'+k).value.trim().toLowerCase(),max=counts()[k];return ['all','все'].includes(v)?max:Math.min(max,/^\d+$/.test(v)?Number(v):0);}
 function updateTake(){const u=wanted('u'),p=wanted('p');$('take-summary').textContent=u||p?`К выдаче: ${number(u)} юзернеймов и ${number(p)} номеров`:'Выберите количество для выдачи';$('take').disabled=!ready||busy||!(u||p);}
-function intakeHint(){const text=$('intake-text').value,lines=text.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);const d=structuredClone(data);const r=add(d,text,'',false,$('dedupe').checked);$('intake-hint').textContent=lines.length?`Строк: ${number(lines.length)} · новых: ${number(r.added)} · дублей: ${number(r.duplicates)}`:'Один юзернейм или номер в каждой строке.';}
+function intakeHint(){const text=$('intake-text').value,lines=text.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);const r=lines.length ? add({stock:[...data.stock]},text,'',false,$('dedupe').checked) : null;$('intake-hint').textContent=lines.length?`Строк: ${number(lines.length)} · новых: ${number(r.added)} · дублей: ${number(r.duplicates)}`:'Один юзернейм или номер в каждой строке.';}
 function element(tag,cls,text){const el=document.createElement(tag);if(cls)el.className=cls;if(text!=null)el.textContent=text;return el;}
 function button(text,fn,cls=''){const b=element('button',cls,text);b.type='button';b.disabled=!ready||busy;b.onclick=fn;return b;}
 function empty(target,title,description){const e=element('div','empty');e.append(element('span','', '◇'),element('strong','',title),document.createTextNode(description));target.append(e);}
@@ -38,7 +38,10 @@ function render(){
  $('intake').querySelector('button[type=submit]').disabled=!ready||busy;$('export').disabled=!ready||busy;$('refresh').disabled=busy;$('import').disabled=!ready||busy;updateTake();intakeHint();
 }
 async function mutate(fn,success){
- if(!ready||busy)return;busy=true;render();setStatus('Сохранение…');
+ if (!ready || busy) return;
+ busy = true;
+ updateTake();
+ setStatus('Сохранение…');
  try{const draft=structuredClone(data),result=fn(draft);await store.save(draft);data=draft;notice('');setStatus(store.label+' · сохранено');success?.(result);}
  catch(error){notice(error.message,true);setStatus('Не удалось сохранить',true);}
  finally{busy=false;render();}

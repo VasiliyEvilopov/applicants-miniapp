@@ -36,50 +36,139 @@ export function validate(value) {
 export function callCloud(api, method, ...args) {
   return new Promise((resolve,reject) => {
     const timeout = setTimeout(() => reject(Error('Telegram не ответил. Проверьте соединение и повторите.')), 20000);
-    api[method](...args, (error, result) => { clearTimeout(timeout); error ? reject(Error(String(error))) : resolve(result); });
+    api[method](...args, (error, result) => { clearTimeout(timeout); if (error || result === false) reject(Error(error ? String(error) : 'Telegram не сохранил изменения.'));
+      else resolve(result); });
   });
 }
 async function digest(text) {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))].map(x=>x.toString(16).padStart(2,'0')).join('');
 }
+async function encodeSnapshot(text) {
+  if (text.length <= CHUNK_SIZE || typeof CompressionStream !== 'function' ||
+      typeof DecompressionStream !== 'function') {
+    return {payload: text, encoding: 'json'};
+  }
+
+  const compressed = new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'));
+  const bytes = new Uint8Array(await new Response(compressed).arrayBuffer());
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += 8192) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
+  }
+  const payload = btoa(binary);
+  return payload.length < text.length
+    ? {payload, encoding: 'gzip'}
+    : {payload: text, encoding: 'json'};
+}
+
+async function decodeSnapshot(payload, encoding) {
+  if (encoding !== 'gzip') return payload;
+  if (typeof DecompressionStream !== 'function') {
+    throw Error('Обновите Telegram или откройте склад на другом устройстве для чтения сжатых данных.');
+  }
+
+  const bytes = Uint8Array.from(atob(payload), char => char.charCodeAt(0));
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return new Response(stream).text();
+}
+
+function chunkKeys(manifest) {
+  if (!manifest) return [];
+  return Array.from({length: manifest.count}, (_, i) => `${ROOT}_${manifest.gen}_${i}`);
+}
+
 export class CloudStore {
-  constructor(api) { this.api=api; this.revision=undefined; this.label='Облако Telegram'; }
-  async load(attempt=0) {
-    const raw = await callCloud(this.api,'getItem',ROOT);
-    if (!raw) { this.revision=''; return EMPTY(); }
+  constructor(api) {
+    this.api = api;
+    this.revision = undefined;
+    this.label = 'Облако Telegram';
+  }
+
+  async load(attempt = 0) {
+    const raw = await callCloud(this.api, 'getItem', ROOT);
+    if (!raw) {
+      this.revision = '';
+      return EMPTY();
+    }
+
     let manifest;
-    try { manifest=JSON.parse(raw); } catch { throw Error('Не удалось прочитать облачный склад. Не перезаписывайте его.'); }
-    if (manifest.v!==1 || !/^[a-z0-9_-]+$/.test(manifest.gen) || !Number.isInteger(manifest.count) || manifest.count<1 || manifest.count>MAX_CHUNKS) throw Error('Повреждена запись облачного склада.');
-    const keys=Array.from({length:manifest.count},(_,i)=>`${ROOT}_${manifest.gen}_${i}`), values={};
-    for(let i=0;i<keys.length;i+=64) Object.assign(values, await callCloud(this.api,'getItems',keys.slice(i,i+64)));
-    if(keys.some(k=>typeof values[k]!=='string' || !values[k])) {
-      if(attempt<2 && await callCloud(this.api,'getItem',ROOT)!==raw)return this.load(attempt+1);
+    try {
+      manifest = JSON.parse(raw);
+    } catch {
+      throw Error('Не удалось прочитать облачный склад. Не перезаписывайте его.');
+    }
+    const supported = manifest?.v === 1 || (manifest?.v === 2 && manifest.encoding === 'gzip');
+    if (!supported || !/^[a-z0-9_-]+$/.test(manifest.gen) ||
+        !Number.isInteger(manifest.count) || manifest.count < 1 || manifest.count > MAX_CHUNKS) {
+      throw Error('Повреждена запись облачного склада.');
+    }
+
+    const keys = chunkKeys(manifest);
+    const values = {};
+    for (let i = 0; i < keys.length; i += 64) {
+      Object.assign(values, await callCloud(this.api, 'getItems', keys.slice(i, i + 64)));
+    }
+    if (keys.some(key => typeof values[key] !== 'string' || !values[key])) {
+      if (attempt < 2 && await callCloud(this.api, 'getItem', ROOT) !== raw) return this.load(attempt + 1);
       throw Error('Склад загрузился не полностью. Повторите открытие.');
     }
-    const text=keys.map(k=>values[k]).join('');
-    if(await digest(text)!==manifest.hash) throw Error('Не прошла проверка целостности склада.');
-    const data=validate(JSON.parse(text)); this.revision=raw; return data;
+
+    const payload = keys.map(key => values[key]).join('');
+    if (await digest(payload) !== manifest.hash) throw Error('Не прошла проверка целостности склада.');
+    const text = await decodeSnapshot(payload, manifest.v === 2 ? manifest.encoding : 'json');
+    const data = validate(JSON.parse(text));
+    this.revision = raw;
+    return data;
   }
+
+  async cleanOldChunks(previousKeys) {
+    const revision = await callCloud(this.api, 'getItem', ROOT);
+    const active = new Set(chunkKeys(revision ? JSON.parse(revision) : null));
+    const keys = await callCloud(this.api, 'getKeys');
+    const obsolete = new Set(previousKeys.filter(key => !active.has(key)));
+    for (const key of keys) {
+      if (active.has(key) || !key.startsWith(ROOT + '_')) continue;
+      const stamp = parseInt(key.slice(ROOT.length + 1).split('-')[0], 36);
+      if (Number.isFinite(stamp) && stamp < Date.now() - 3600000) obsolete.add(key);
+    }
+    const obsoleteKeys = [...obsolete];
+    for (let i = 0; i < obsoleteKeys.length; i += 64) {
+      await callCloud(this.api, 'removeItems', obsoleteKeys.slice(i, i + 64));
+    }
+  }
+
   async save(data) {
-    const text=JSON.stringify(validate(data)), chunks=[];
-    for(let i=0;i<text.length;i+=CHUNK_SIZE) chunks.push(text.slice(i,i+CHUNK_SIZE));
-    if(chunks.length>MAX_CHUNKS) throw Error('Облачный склад заполнен. Скачайте резервную копию и удалите ненужную историю.');
-    if(this.revision===undefined) throw Error('Сначала загрузите склад.');
-    const current=await callCloud(this.api,'getItem',ROOT);
-    if(current!==this.revision) throw Error('Склад изменён на другом устройстве. Обновите данные перед продолжением.');
-    const gen=Date.now().toString(36)+'-'+crypto.randomUUID().replaceAll('-','');
-    // Never remove a recent uncommitted generation: another device may be writing it.
-    const keep=current ? JSON.parse(current).gen : null;
-    const keys=await callCloud(this.api,'getKeys');
-    const stale=keys.filter(k=>{if(!k.startsWith(ROOT+'_') || (keep && k.startsWith(`${ROOT}_${keep}_`)))return false;const stamp=parseInt(k.slice(ROOT.length+1).split('-')[0],36);return Number.isFinite(stamp)&&stamp<Date.now()-3600000;});
-    for(let i=0;i<stale.length;i+=64) await callCloud(this.api,'removeItems',stale.slice(i,i+64));
-    for(let i=0;i<chunks.length;i+=4) await Promise.all(chunks.slice(i,i+4).map((part,n)=>callCloud(this.api,'setItem',`${ROOT}_${gen}_${i+n}`,part)));
-    if(await callCloud(this.api,'getItem',ROOT)!==this.revision) throw Error('Склад изменён на другом устройстве. Обновите данные.');
-    const next=JSON.stringify({v:1,gen,count:chunks.length,hash:await digest(text),savedAt:Date.now()});
-    // The pointer changes last; incomplete uploads never replace the previous snapshot.
-    await callCloud(this.api,'setItem',ROOT,next); this.revision=next;
-    // Only the old committed generation is disposable after the new pointer is durable.
-    if(keep){const old=keys.filter(k=>k.startsWith(`${ROOT}_${keep}_`));try{for(let i=0;i<old.length;i+=64)await callCloud(this.api,'removeItems',old.slice(i,i+64));}catch{/* A cleanup failure must not turn a committed save into an error. */}}
+    if (this.revision === undefined) throw Error('Сначала загрузите склад.');
+    const revision = this.revision;
+    const current = await callCloud(this.api, 'getItem', ROOT);
+    if (current !== revision) throw Error('Склад изменён на другом устройстве. Обновите данные перед продолжением.');
+
+    const {payload, encoding} = await encodeSnapshot(JSON.stringify(validate(data)));
+    const chunks = [];
+    for (let i = 0; i < payload.length; i += CHUNK_SIZE) chunks.push(payload.slice(i, i + CHUNK_SIZE));
+    if (chunks.length > MAX_CHUNKS) {
+      throw Error('Облачный склад заполнен. Скачайте резервную копию и удалите ненужную историю.');
+    }
+
+    const gen = Date.now().toString(36) + '-' + crypto.randomUUID().replaceAll('-', '');
+    const manifest = {v: encoding === 'gzip' ? 2 : 1, gen, count: chunks.length,
+      hash: await digest(payload), savedAt: Date.now()};
+    if (encoding === 'gzip') manifest.encoding = encoding;
+    const keys = chunkKeys(manifest);
+    for (let i = 0; i < chunks.length; i += 4) {
+      await Promise.all(chunks.slice(i, i + 4).map((part, n) =>
+        callCloud(this.api, 'setItem', keys[i + n], part)));
+    }
+    if (await callCloud(this.api, 'getItem', ROOT) !== revision) {
+      throw Error('Склад изменён на другом устройстве. Обновите данные.');
+    }
+
+    const next = JSON.stringify(manifest);
+    // Publish the new snapshot only after every chunk has been saved.
+    await callCloud(this.api, 'setItem', ROOT, next);
+    this.revision = next;
+    // Cleanup can wait. An interrupted cleanup is picked up by a later save.
+    this.cleanOldChunks(chunkKeys(current ? JSON.parse(current) : null)).catch(() => {});
     return data;
   }
 }

@@ -20,3 +20,30 @@ test('issued contacts can be added again; current stock and incoming repeats are
  assert.equal(d.stock.flatMap(b=>b.items).length,3);
  assert.deepEqual(add(d,'@Alice\n79161234567'),{added:0,duplicates:2});
 });
+
+test('large cloud stock compresses and issuance finishes before cleanup', async () => {
+  const api = fakeCloud();
+  const store = new CloudStore(api);
+  const data = await store.load();
+  add(data, Array.from({length: 10000}, (_, i) => '@candidate_' + i).join('\n'));
+  await store.save(data);
+  const root = 'applicants_v1';
+  const first = JSON.parse(api.map.get(root));
+  assert.equal(first.encoding, 'gzip');
+  assert.ok(first.count < Math.ceil(JSON.stringify(data).length / 3000) / 2);
+  assert.deepEqual(await new CloudStore(api).load(), data);
+
+  const cleanup = api.removeItems;
+  let finishCleanup;
+  const cleaning = new Promise(resolve => {
+    api.removeItems = (keys, callback) => {
+      finishCleanup = () => cleanup(keys, callback);
+      resolve();
+    };
+  });
+  take(data, 50, 0);
+  await store.save(data);
+  await cleaning;
+  assert.deepEqual(await new CloudStore(api).load(), data);
+  finishCleanup();
+});
