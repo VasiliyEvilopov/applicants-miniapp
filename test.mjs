@@ -47,3 +47,31 @@ test('large cloud stock compresses and issuance finishes before cleanup', async 
   assert.deepEqual(await new CloudStore(api).load(), data);
   finishCleanup();
 });
+
+test('ordinary issuance writes one key and replays on reopen', async () => {
+  const api = fakeCloud();
+  const store = new CloudStore(api);
+  const data = await store.load();
+  add(data, '@first\n@second\n@third', '', true);
+  await store.save(data);
+
+  const writes = [];
+  const setItem = api.setItem;
+  api.setItem = (key, value, callback) => {
+    writes.push(key);
+    setItem(key, value, callback);
+  };
+  const issue = take(data, 1, 0);
+  await store.saveIssue(data, {users: 1, phones: 0, batchId: null, id: issue.id, takenAt: issue.takenAt});
+  assert.deepEqual(writes, ['applicants_v1']);
+  const reopened = new CloudStore(api);
+  assert.deepEqual(await reopened.load(), data);
+
+  const batchId = data.stock[0].id;
+  const rest = take(data, 0, 0, batchId);
+  await store.saveIssue(data, {users: 0, phones: 0, batchId, id: rest.id, takenAt: rest.takenAt});
+  assert.deepEqual(await new CloudStore(api).load(), data);
+  await assert.rejects(() => reopened.save(data), /другом устройстве/);
+  await store.save(data);
+  assert.deepEqual(await new CloudStore(api).load(), data);
+});

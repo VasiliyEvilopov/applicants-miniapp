@@ -14,14 +14,14 @@ export function add(data,text,name='',mixed=false,dedupe=true) {
  }
  return {added:fresh.length,duplicates};
 }
-export function take(data,nu,np,batchId=null) {
+export function take(data,nu,np,batchId=null,issuedAt=null) {
  const need={u:nu,p:np},got={u:[],p:[]};
  for(const b of [...data.stock].sort((a,b)=>a.createdAt-b.createdAt)) {
   b.items=b.items.filter(x=>{const k=kindOf(x);if(batchId?b.id===batchId:need[k]>0){got[k].push(x);need[k]--;return false}return true});
  }
  data.stock=data.stock.filter(b=>b.items.length);
  if(!got.u.length&&!got.p.length)throw Error('Нечего забирать.');
- const t={id:id(),takenAt:Date.now(),users:got.u,phones:got.p};data.issued.push(t);return t;
+ const t={...(issuedAt ?? {id:id(),takenAt:Date.now()}),users:got.u,phones:got.p};data.issued.push(t);return t;
 }
 export function restore(data,issueId) {
  const t=data.issued.find(t=>t.id===issueId);if(!t)throw Error('Выдача уже возвращена.');

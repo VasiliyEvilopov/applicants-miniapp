@@ -1,3 +1,5 @@
+import {take} from './core.mjs?v=3';
+
 /* Personal storage: GitHub serves code; contact data stays in the browser or Telegram. */
 export const EMPTY = () => ({stock: [], issued: []});
 const ROOT = 'applicants_v1';
@@ -97,7 +99,9 @@ export class CloudStore {
     } catch {
       throw Error('Не удалось прочитать облачный склад. Не перезаписывайте его.');
     }
-    const supported = manifest?.v === 1 || (manifest?.v === 2 && manifest.encoding === 'gzip');
+    const journal = manifest?.v === 3 && Array.isArray(manifest.issues) &&
+      ['json', 'gzip'].includes(manifest.encoding);
+    const supported = journal || manifest?.v === 1 || (manifest?.v === 2 && manifest.encoding === 'gzip');
     if (!supported || !/^[a-z0-9_-]+$/.test(manifest.gen) ||
         !Number.isInteger(manifest.count) || manifest.count < 1 || manifest.count > MAX_CHUNKS) {
       throw Error('Повреждена запись облачного склада.');
@@ -115,8 +119,13 @@ export class CloudStore {
 
     const payload = keys.map(key => values[key]).join('');
     if (await digest(payload) !== manifest.hash) throw Error('Не прошла проверка целостности склада.');
-    const text = await decodeSnapshot(payload, manifest.v === 2 ? manifest.encoding : 'json');
+    const text = await decodeSnapshot(payload, manifest.encoding ?? 'json');
     const data = validate(JSON.parse(text));
+    if (journal) {
+      for (const {users, phones, batchId, id, takenAt} of manifest.issues) {
+        take(data, users, phones, batchId, {id, takenAt});
+      }
+    }
     this.revision = raw;
     return data;
   }
@@ -135,6 +144,28 @@ export class CloudStore {
     for (let i = 0; i < obsoleteKeys.length; i += 64) {
       await callCloud(this.api, 'removeItems', obsoleteKeys.slice(i, i + 64));
     }
+  }
+
+  async saveIssue(data, operation) {
+    if (!this.revision) return this.save(data);
+
+    const revision = this.revision;
+    const previous = JSON.parse(revision);
+    const next = JSON.stringify({
+      ...previous,
+      v: 3,
+      encoding: previous.encoding ?? 'json',
+      issues: [...(previous.issues ?? []), operation],
+    });
+    // Telegram limits each value to 4096 characters. A full save compacts the journal.
+    if (next.length > 4000) return this.save(data);
+
+    if (await callCloud(this.api, 'getItem', ROOT) !== revision) {
+      throw Error('Склад изменён на другом устройстве. Обновите данные перед продолжением.');
+    }
+
+    await callCloud(this.api, 'setItem', ROOT, next);
+    this.revision = next;
   }
 
   async save(data) {

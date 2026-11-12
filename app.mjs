@@ -1,5 +1,5 @@
-import {CloudStore,LocalStore,EMPTY,validate} from './storage.mjs?v=2';
-import {add,take,restore,isPhone,sort} from './core.mjs';
+import {CloudStore,LocalStore,EMPTY,validate} from './storage.mjs?v=3';
+import {add,take,restore,isPhone,sort} from './core.mjs?v=3';
 const $=id=>document.getElementById(id),tg=window.Telegram?.WebApp;
 const inTelegram=!!(tg?.initData && tg?.initDataUnsafe?.user);
 let store,data=EMPTY(),ready=false,busy=false,sortResult={result:'',phones:[],duplicates:0},currentIssue=null;
@@ -24,7 +24,7 @@ function render(){
  for(const b of [...data.stock].sort((a,b)=>a.createdAt-b.createdAt)){
   const el=element('article','record'),head=element('div','record-head'),actions=element('div','record-actions');
   head.append(element('strong','',number(b.items.length)),element('span','badge '+b.kind,{u:'юзернеймы',p:'номера',mixed:'общая'}[b.kind]),element('span','record-title',b.name),element('span','record-date',date(b.createdAt)));
-  actions.append(button('Забрать всю партию ↗',()=>mutate(d=>take(d,0,0,b.id),t=>{showIssue(t);toast('Партия выдана и сохранена в истории.');})),button('Удалить',async()=>{if(await confirmAction('Удалить партию?',`${b.items.length} контактов будут удалены со склада.`, 'Удалить'))await mutate(d=>{d.stock=d.stock.filter(x=>x.id!==b.id)},()=>toast('Партия удалена.'));},'danger'));
+  actions.append(button('Забрать всю партию ↗',()=>issueContacts(0,0,b.id)),button('Удалить',async()=>{if(await confirmAction('Удалить партию?',`${b.items.length} контактов будут удалены со склада.`, 'Удалить'))await mutate(d=>{d.stock=d.stock.filter(x=>x.id!==b.id)},()=>toast('Партия удалена.'));},'danger'));
   el.append(head,element('p','peek',b.items.slice(0,5).join(' · ')+(b.items.length>5?' …':'')),actions);batches.append(el);
  }
  const issues=$('issues');issues.replaceChildren();
@@ -37,12 +37,12 @@ function render(){
  }
  $('intake').querySelector('button[type=submit]').disabled=!ready||busy;$('export').disabled=!ready||busy;$('refresh').disabled=busy;$('import').disabled=!ready||busy;updateTake();intakeHint();
 }
-async function mutate(fn,success){
+async function mutate(fn,success,save=(draft)=>store.save(draft)){
  if (!ready || busy) return;
  busy = true;
  updateTake();
  setStatus('Сохранение…');
- try{const draft=structuredClone(data),result=fn(draft);await store.save(draft);data=draft;notice('');setStatus(store.label+' · сохранено');success?.(result);}
+ try{const draft=structuredClone(data),result=fn(draft);await save(draft,result);data=draft;notice('');setStatus(store.label+' · сохранено');success?.(result);}
  catch(error){notice(error.message,true);setStatus('Не удалось сохранить',true);}
  finally{busy=false;render();}
 }
@@ -67,7 +67,21 @@ $('refresh').onclick=reload;
 document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>switchView(b.dataset.view));
 document.querySelectorAll('[data-count]').forEach(b=>b.onclick=()=>{$('take-'+b.dataset.kind).value=b.dataset.count==='all'?'все':b.dataset.count;updateTake();});
 for(const k of ['u','p']){$('take-'+k).oninput=updateTake;$('take-'+k).onfocus=e=>e.target.select();}
-$('take').onclick=()=>mutate(d=>take(d,wanted('u'),wanted('p')),t=>{$('take-u').value='0';$('take-p').value='0';showIssue(t);toast('Выдача сохранена в истории.');});
+function issueContacts(users, phones, batchId = null) {
+ return mutate(
+  draft => take(draft, users, phones, batchId),
+  issue => {
+   $('take-u').value = '0';
+   $('take-p').value = '0';
+   showIssue(issue);
+   toast('Выдача сохранена в истории.');
+  },
+  (draft, issue) => store.saveIssue
+   ? store.saveIssue(draft, {users, phones, batchId, id: issue.id, takenAt: issue.takenAt})
+   : store.save(draft),
+ );
+}
+$('take').onclick=()=>issueContacts(wanted('u'),wanted('p'));
 $('intake-text').oninput=intakeHint;$('dedupe').onchange=intakeHint;
 $('intake').onsubmit=async e=>{e.preventDefault();const text=$('intake-text').value;if(!text.trim()){toast('Вставьте список контактов.');return;}await mutate(d=>add(d,text,$('batch-name').value,$('mixed').checked,$('dedupe').checked),r=>{if(r.added){$('intake-text').value='';$('batch-name').value='';}toast(`Добавлено: ${r.added} · дублей: ${r.duplicates}`);});};
 bindFile('intake-file',(text)=>{$('intake-text').value=text;intakeHint();toast('Список загружен. Проверьте и добавьте на склад.');});
