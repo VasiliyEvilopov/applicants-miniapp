@@ -8,6 +8,7 @@ Core cloning logic:
 import asyncio
 import logging
 import os
+import random
 from typing import Callable, Coroutine, Optional
 
 from telethon import TelegramClient
@@ -27,6 +28,40 @@ logger = logging.getLogger(__name__)
 
 # Type alias for optional async progress callback
 ProgressCallback = Optional[Callable[[str], Coroutine]]
+
+# ── Random device fingerprint pools ───────────────────────────────────────────
+_DEVICE_MODELS = [
+    "Samsung Galaxy S23 Ultra", "Samsung Galaxy S22", "Samsung Galaxy A54",
+    "Xiaomi 13 Pro", "Xiaomi Redmi Note 12", "POCO X5 Pro",
+    "OnePlus 11", "OnePlus Nord 3", "Google Pixel 7 Pro",
+    "Huawei P60 Pro", "OPPO Find X6", "Realme GT 5",
+    "Motorola Edge 40", "Nokia G60", "Sony Xperia 1 V",
+]
+
+_SYSTEM_VERSIONS = [
+    "Android 13", "Android 12", "Android 12L",
+    "Android 13; SDK 33", "Android 12; SDK 32",
+    "14", "13", "12",
+]
+
+_APP_VERSIONS = [
+    "10.3.2", "10.2.9", "10.1.5", "10.0.1",
+    "9.6.7", "9.5.3", "9.4.1",
+    "10.3.0", "10.2.5",
+]
+
+_LANG_CODES = ["en", "ru", "en-US", "en-GB"]
+
+
+def _random_fingerprint() -> dict:
+    """Generate a random Telegram client device fingerprint."""
+    return {
+        "device_model": random.choice(_DEVICE_MODELS),
+        "system_version": random.choice(_SYSTEM_VERSIONS),
+        "app_version": random.choice(_APP_VERSIONS),
+        "lang_code": random.choice(_LANG_CODES),
+        "system_lang_code": random.choice(_LANG_CODES),
+    }
 
 
 class TDataCloner:
@@ -85,6 +120,8 @@ class TDataCloner:
         # ── Step 2: Create second client for fresh auth ───────────────────
         await self._progress("📡 Запрашиваю код авторизации...")
         logger.info("Step 2: Starting fresh authorization...")
+        fp = _random_fingerprint()
+        logger.info(f"Device fingerprint: {fp['device_model']} / {fp['system_version']} / TG {fp['app_version']}")
         self._client2 = TelegramClient(
             session=StringSession(),
             api_id=self.api_id,
@@ -92,6 +129,11 @@ class TDataCloner:
             proxy=proxy_tuple,
             connection_retries=1,
             timeout=20,
+            device_model=fp["device_model"],
+            system_version=fp["system_version"],
+            app_version=fp["app_version"],
+            lang_code=fp["lang_code"],
+            system_lang_code=fp["system_lang_code"],
         )
         try:
             await asyncio.wait_for(self._client2.connect(), timeout=30)
