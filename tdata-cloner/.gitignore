@@ -1,0 +1,7 @@
+.env
+*.session
+output/
+__pycache__/
+*.pyc
+.DS_Store
+/tmp_*
