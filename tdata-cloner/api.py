@@ -45,8 +45,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory job store: job_id -> {status, result_path, work_dir, error, created_at}
+# In-memory job store: job_id -> {status, result_path, work_dir, error, created_at, ...}
 jobs: dict[str, dict] = {}
+
+# History: list of completed job summaries (last 50)
+history: list[dict] = []
+HISTORY_MAX = 50
 
 JOB_TTL = 600  # seconds before job is cleaned up
 
@@ -136,6 +140,7 @@ async def _run_clone(job_id: str, proxy_str: str, zip_bytes_list: list[bytes]):
         if not tdata_paths:
             jobs[job_id]["status"] = "error"
             jobs[job_id]["error"] = "Папка tdata не найдена ни в одном архиве"
+            _record_history(job_id, [], [("—", "tdata не найдена")])
             return
 
         jobs[job_id]["total"] = len(tdata_paths)
@@ -172,11 +177,34 @@ async def _run_clone(job_id: str, proxy_str: str, zip_bytes_list: list[bytes]):
 
         jobs[job_id]["result_path"] = zip_out
         jobs[job_id]["status"] = "done"
+        _record_history(job_id, ok, errors)
 
     except Exception as e:
         logger.exception(f"Clone error for job {job_id}")
         jobs[job_id]["status"] = "error"
         jobs[job_id]["error"] = str(e)
+        _record_history(job_id, [], [(jobs[job_id].get("files_count", "?"), str(e))])
+
+
+def _record_history(job_id: str, ok: list, errors: list):
+    """Append a completed job to the history list."""
+    job = jobs.get(job_id, {})
+    entry = {
+        "job_id": job_id,
+        "ts": int(job.get("created_at", time.time())),
+        "files": job.get("total", len(ok) + len(errors)),
+        "ok": [{"phone": phone} for phone, _ in ok],
+        "errors": [{"label": label, "error": err} for label, err in errors],
+        "status": job.get("status", "done"),
+    }
+    history.insert(0, entry)
+    if len(history) > HISTORY_MAX:
+        history.pop()
+
+
+@app.get("/history")
+async def get_history():
+    return {"history": history}
 
 
 @app.get("/")

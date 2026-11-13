@@ -9,7 +9,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
 <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
-<script type="module" src="app.mjs?v=6"></script>
+<script type="module" src="app.mjs?v=7"></script>
 </head>
 <body>
 <div class="shell">
@@ -48,6 +48,10 @@
   <p id="cloner-status-text" class="hint">Инициализация…</p>
   <div id="cloner-progress" class="cloner-progress" hidden></div>
   <button id="cloner-download" class="primary" hidden>↓ Скачать cloned_tdata.zip</button>
+</section>
+<section class="card" id="cloner-history-card">
+  <div class="card-title"><h2>История клонирований</h2><button id="cloner-history-refresh" class="text-button">↻ Обновить</button></div>
+  <div id="cloner-history-list"><p class="hint">Загрузка…</p></div>
 </section>
 </section>
 <section class="backup"><div><h2>Ваши данные — с вами</h2><p id="storage-help">Загрузка хранилища…</p></div><div class="actions"><button id="export">↓ Резервная копия</button><label class="file-button button">↥ Импорт .json<input id="import" type="file" accept=".json,application/json"></label></div></section>

@@ -218,3 +218,64 @@ $('cloner-download').onclick = () => {
   a.click();
   a.remove();
 };
+
+// ── Cloner history ─────────────────────────────────────────────────────────
+
+async function loadClonerHistory() {
+  const container = $('cloner-history-list');
+  try {
+    const r = await fetch(`${CLONER_API}/history`);
+    if (!r.ok) throw new Error(r.statusText);
+    const { history } = await r.json();
+
+    if (!history || !history.length) {
+      container.innerHTML = '<p class="hint">Пока ничего не клонировалось.</p>';
+      return;
+    }
+
+    const rows = history.map(entry => {
+      const dt = new Date(entry.ts * 1000).toLocaleString('ru-RU', {
+        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+      });
+      const okPhones = (entry.ok || []).map(o => `<code>+${o.phone}</code>`).join(' ');
+      const errCount = (entry.errors || []).length;
+      const statusIcon = entry.status === 'done' ? '✅' : '❌';
+      const summary = entry.ok.length
+        ? `${statusIcon} ${entry.ok.length}/${entry.files} аккаунт(ов)`
+        : `${statusIcon} ошибка`;
+      const errHint = errCount
+        ? `<br><span class="hint">${errCount} ошибок: ${(entry.errors||[]).slice(0,3).map(e=>`${e.label}: ${e.error}`).join('; ')}</span>`
+        : '';
+      return `<div class="history-row">
+        <div class="history-meta"><span class="hint">${dt}</span> ${summary}</div>
+        <div class="history-phones">${okPhones}${errHint}</div>
+      </div>`;
+    });
+    container.innerHTML = rows.join('<hr class="history-sep">');
+  } catch (e) {
+    container.innerHTML = `<p class="hint">Не удалось загрузить: ${e.message}</p>`;
+  }
+}
+
+$('cloner-history-refresh').onclick = loadClonerHistory;
+
+// Load history when switching to cloner tab
+document.querySelectorAll('[data-view]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (btn.dataset.view === 'cloner') loadClonerHistory();
+  });
+});
+
+// Also load on poll completion
+const _origClonerPoll = clonerPoll;
+// refresh history after each successful clone
+async function clonerPollWithHistory() {
+  await _origClonerPoll();
+  const txt = $('cloner-status-text').textContent;
+  if (txt.startsWith('✅')) loadClonerHistory();
+}
+
+// Initial load if already on cloner tab
+if (document.querySelector('[data-view="cloner"][aria-current="page"]')) {
+  loadClonerHistory();
+}
