@@ -73,10 +73,12 @@ async def cmd_start(message: Message, state: FSMContext):
     await message.answer(
         "👋 <b>TData Cloner Bot</b>\n\n"
         "Клонирует Telegram-сессию из TData в новую авторизацию.\n\n"
-        "📡 Отправь прокси в формате:\n"
+        "📡 Отправь прокси в формате <b>SOCKS5</b>:\n"
         "<code>ip:port</code>\n"
         "<code>ip:port:user:pass</code>\n"
-        "<code>socks5://user:pass@ip:port</code>",
+        "<code>socks5://user:pass@ip:port</code>\n\n"
+        "⚠️ HTTP прокси не работают с Telegram — только SOCKS5.\n"
+        "Или отправь <code>-</code> чтобы работать без прокси.",
         parse_mode="HTML"
     )
     await state.set_state(CloneStates.waiting_proxy)
@@ -85,10 +87,30 @@ async def cmd_start(message: Message, state: FSMContext):
 @dp.message(CloneStates.waiting_proxy)
 async def got_proxy(message: Message, state: FSMContext):
     proxy_str = message.text.strip()
+
+    if proxy_str == "-":
+        await state.update_data(proxy_str=None)
+        await message.answer(
+            "✅ Без прокси.\n\n"
+            "📦 Теперь отправь TData как <b>.zip архив</b>\n"
+            "(архив должен содержать папку <code>tdata/</code> внутри)",
+            parse_mode="HTML"
+        )
+        await state.set_state(CloneStates.waiting_tdata)
+        return
+
     try:
         proxy = parse_proxy(proxy_str)
     except Exception as e:
         await message.answer(f"❌ Не могу распарсить прокси: {e}\n\nПопробуй ещё раз.")
+        return
+
+    if proxy.proxy_type != __import__('socks').SOCKS5:
+        await message.answer(
+            "⚠️ HTTP прокси не работают с Telegram.\n"
+            "Используй SOCKS5 или отправь <code>-</code> для работы без прокси.",
+            parse_mode="HTML"
+        )
         return
 
     await state.update_data(proxy_str=proxy_str)
