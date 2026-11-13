@@ -267,8 +267,10 @@ async def send_result(
 # ── Helpers ───────────────────────────────────────────────────────────────
 
 def find_tdata(base_dir: str) -> str | None:
-    """Recursively find 'tdata' folder in extracted archive."""
+    """Recursively find 'tdata' folder in extracted archive, skipping macOS metadata."""
     for root, dirs, files in os.walk(base_dir):
+        # Skip __MACOSX and other hidden/system dirs
+        dirs[:] = [d for d in dirs if not d.startswith("__") and not d.startswith(".")]
         for d in dirs:
             if d.lower() == "tdata":
                 return os.path.join(root, d)
