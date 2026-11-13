@@ -105,7 +105,11 @@ class TDataCloner:
             f"⏳ Жду когда он придёт в исходный аккаунт (до {self.code_timeout}с)..."
         )
         logger.info(f"Step 3: Waiting for auth code (timeout: {self.code_timeout}s)...")
-        code = await wait_for_code(self._client1, timeout=self.code_timeout)
+        code = await wait_for_code(
+            self._client1,
+            timeout=self.code_timeout,
+            on_progress=self.on_progress,
+        )
 
         if not code:
             raise TimeoutError(f"Код не пришёл за {self.code_timeout} секунд")
