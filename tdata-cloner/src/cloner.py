@@ -30,37 +30,175 @@ logger = logging.getLogger(__name__)
 ProgressCallback = Optional[Callable[[str], Coroutine]]
 
 # ── Random device fingerprint pools ───────────────────────────────────────────
+# 200+ real Android device models grouped by brand
 _DEVICE_MODELS = [
-    "Samsung Galaxy S23 Ultra", "Samsung Galaxy S22", "Samsung Galaxy A54",
-    "Xiaomi 13 Pro", "Xiaomi Redmi Note 12", "POCO X5 Pro",
-    "OnePlus 11", "OnePlus Nord 3", "Google Pixel 7 Pro",
-    "Huawei P60 Pro", "OPPO Find X6", "Realme GT 5",
-    "Motorola Edge 40", "Nokia G60", "Sony Xperia 1 V",
+    # Samsung Galaxy S-series
+    "Samsung Galaxy S24 Ultra", "Samsung Galaxy S24+", "Samsung Galaxy S24",
+    "Samsung Galaxy S23 Ultra", "Samsung Galaxy S23+", "Samsung Galaxy S23",
+    "Samsung Galaxy S22 Ultra", "Samsung Galaxy S22+", "Samsung Galaxy S22",
+    "Samsung Galaxy S21 Ultra", "Samsung Galaxy S21+", "Samsung Galaxy S21",
+    "Samsung Galaxy S21 FE", "Samsung Galaxy S20 Ultra", "Samsung Galaxy S20+",
+    # Samsung Galaxy A-series
+    "Samsung Galaxy A55", "Samsung Galaxy A54", "Samsung Galaxy A53",
+    "Samsung Galaxy A52s", "Samsung Galaxy A52", "Samsung Galaxy A35",
+    "Samsung Galaxy A34", "Samsung Galaxy A33", "Samsung Galaxy A25",
+    "Samsung Galaxy A24", "Samsung Galaxy A15", "Samsung Galaxy A14",
+    "Samsung Galaxy A73", "Samsung Galaxy A72", "Samsung Galaxy A71",
+    # Samsung Galaxy M/F-series
+    "Samsung Galaxy M54", "Samsung Galaxy M53", "Samsung Galaxy M34",
+    "Samsung Galaxy M33", "Samsung Galaxy F54", "Samsung Galaxy F34",
+    # Xiaomi
+    "Xiaomi 14 Ultra", "Xiaomi 14 Pro", "Xiaomi 14",
+    "Xiaomi 13 Ultra", "Xiaomi 13 Pro", "Xiaomi 13",
+    "Xiaomi 12 Pro", "Xiaomi 12", "Xiaomi 12 Lite",
+    "Xiaomi 11T Pro", "Xiaomi 11T", "Xiaomi 11 Lite NE",
+    # Xiaomi Redmi
+    "Xiaomi Redmi Note 13 Pro+", "Xiaomi Redmi Note 13 Pro",
+    "Xiaomi Redmi Note 13", "Xiaomi Redmi Note 12 Pro+",
+    "Xiaomi Redmi Note 12 Pro", "Xiaomi Redmi Note 12",
+    "Xiaomi Redmi Note 11 Pro", "Xiaomi Redmi Note 11",
+    "Xiaomi Redmi 13C", "Xiaomi Redmi 12", "Xiaomi Redmi 12C",
+    "Xiaomi Redmi A2+", "Xiaomi Redmi A2",
+    # POCO
+    "POCO X6 Pro", "POCO X6", "POCO X5 Pro", "POCO X5",
+    "POCO F5 Pro", "POCO F5", "POCO F4 GT", "POCO F4",
+    "POCO M6 Pro", "POCO M5s", "POCO M5", "POCO C65",
+    # OnePlus
+    "OnePlus 12", "OnePlus 12R", "OnePlus 11", "OnePlus 11R",
+    "OnePlus 10 Pro", "OnePlus 10T", "OnePlus 9 Pro", "OnePlus 9",
+    "OnePlus Nord 3", "OnePlus Nord CE 3 Lite", "OnePlus Nord CE 3",
+    "OnePlus Nord 2T", "OnePlus Nord CE 2 Lite",
+    # Google Pixel
+    "Google Pixel 8 Pro", "Google Pixel 8", "Google Pixel 8a",
+    "Google Pixel 7 Pro", "Google Pixel 7", "Google Pixel 7a",
+    "Google Pixel 6 Pro", "Google Pixel 6", "Google Pixel 6a",
+    "Google Pixel 5", "Google Pixel 4a",
+    # OPPO
+    "OPPO Find X7 Ultra", "OPPO Find X7 Pro", "OPPO Find X7",
+    "OPPO Find X6 Pro", "OPPO Find X6", "OPPO Reno 11 Pro",
+    "OPPO Reno 11", "OPPO Reno 10 Pro+", "OPPO Reno 10 Pro",
+    "OPPO Reno 10", "OPPO A98", "OPPO A78", "OPPO A58",
+    # Realme
+    "Realme GT 5 Pro", "Realme GT 5", "Realme GT Neo 5",
+    "Realme GT 3", "Realme 11 Pro+", "Realme 11 Pro",
+    "Realme 11", "Realme 10 Pro+", "Realme 10 Pro",
+    "Realme C55", "Realme C53", "Realme Narzo 60 Pro",
+    # Vivo
+    "vivo X100 Pro", "vivo X100", "vivo X90 Pro+",
+    "vivo X90 Pro", "vivo X90", "vivo V29 Pro",
+    "vivo V29", "vivo V27 Pro", "vivo Y100",
+    # Motorola
+    "Motorola Edge 50 Pro", "Motorola Edge 50 Ultra", "Motorola Edge 50",
+    "Motorola Edge 40 Pro", "Motorola Edge 40 Neo", "Motorola Edge 40",
+    "Motorola Edge 30 Ultra", "Motorola Edge 30 Pro",
+    "Motorola Moto G84", "Motorola Moto G73", "Motorola Moto G54",
+    "Motorola Moto G53", "Motorola Moto G34",
+    # Sony Xperia
+    "Sony Xperia 1 VI", "Sony Xperia 1 V", "Sony Xperia 1 IV",
+    "Sony Xperia 5 V", "Sony Xperia 5 IV", "Sony Xperia 10 VI",
+    "Sony Xperia 10 V", "Sony Xperia 10 IV",
+    # Nokia
+    "Nokia G42", "Nokia G22", "Nokia XR21",
+    "Nokia C32", "Nokia C22", "Nokia C12",
+    # Huawei (without GMS — still common)
+    "Huawei P60 Pro", "Huawei P60", "Huawei Mate 60 Pro",
+    "Huawei Nova 11 Pro", "Huawei Nova 11", "Huawei Nova 10 Pro",
+    # ZTE / nubia
+    "nubia Z50 Ultra", "nubia Z50S Pro", "ZTE Blade V50 Design",
+    # Asus
+    "ASUS ROG Phone 8 Pro", "ASUS ROG Phone 7 Ultimate",
+    "ASUS ZenFone 10", "ASUS ZenFone 9",
+    # Infinix / Tecno
+    "Infinix Note 30 Pro", "Infinix Hot 40 Pro", "Infinix Smart 8",
+    "Tecno Camon 20 Pro", "Tecno Spark 20 Pro",
 ]
 
+# Android version strings with build numbers (the way real devices report them)
 _SYSTEM_VERSIONS = [
-    "Android 13", "Android 12", "Android 12L",
-    "Android 13; SDK 33", "Android 12; SDK 32",
-    "14", "13", "12",
+    # Android 14
+    "14", "Android 14",
+    "14; Build/UQ1A.240205.004", "14; Build/AP1A.240405.002",
+    "14; Build/AP2A.240805.005",
+    # Android 13
+    "13", "Android 13",
+    "13; Build/TQ2A.230505.002", "13; Build/TQ3A.230901.001",
+    "13; Build/TP1A.220624.014",
+    # Android 12
+    "12", "Android 12",
+    "12; Build/SK3A.220210.001", "12; Build/SP1A.210812.016",
+    "12L", "12.1",
+    # Android 11
+    "11", "Android 11",
+    "11; Build/RQ3A.211001.001", "11; Build/RP1A.201005.001",
+    # Android 10 (older but still used)
+    "10", "Android 10",
+    "10; Build/QP1A.191005.007",
 ]
 
+# Telegram Android app versions (real release history)
 _APP_VERSIONS = [
-    "10.3.2", "10.2.9", "10.1.5", "10.0.1",
-    "9.6.7", "9.5.3", "9.4.1",
-    "10.3.0", "10.2.5",
+    "10.14.5", "10.14.4", "10.14.2", "10.14.1",
+    "10.13.3", "10.13.2", "10.13.1", "10.13.0",
+    "10.12.5", "10.12.4", "10.12.3", "10.12.2", "10.12.1",
+    "10.11.3", "10.11.2", "10.11.1", "10.11.0",
+    "10.10.3", "10.10.2", "10.10.1",
+    "10.9.5", "10.9.4", "10.9.3", "10.9.2", "10.9.1",
+    "10.8.3", "10.8.2", "10.8.1",
+    "10.7.5", "10.7.4", "10.7.3", "10.7.2",
+    "10.6.4", "10.6.3", "10.6.2", "10.6.1",
+    "10.5.4", "10.5.3", "10.5.2", "10.5.1",
+    "10.4.5", "10.4.4", "10.4.3", "10.4.2", "10.4.1",
+    "10.3.2", "10.3.1", "10.3.0",
+    "10.2.9", "10.2.8", "10.2.7",
+    "10.1.5", "10.1.4", "10.1.3",
+    "10.0.3", "10.0.2", "10.0.1",
+    "9.6.7", "9.6.6", "9.6.5",
+    "9.5.3", "9.5.2", "9.5.1",
+    "9.4.5", "9.4.4", "9.4.3",
 ]
 
-_LANG_CODES = ["en", "ru", "en-US", "en-GB"]
+# Language codes — weighted toward common regions
+_LANG_CODES = [
+    # High frequency
+    "ru", "ru", "ru",           # Russia (most likely user base)
+    "en", "en",                 # English
+    "uk",                       # Ukrainian
+    "kk",                       # Kazakh
+    "uz",                       # Uzbek
+    # Medium frequency
+    "de", "fr", "es", "it", "pt",
+    "tr", "pl", "ro", "nl", "sv",
+    # Less common but realistic
+    "ar", "fa", "hi", "id", "vi",
+    "zh-CN", "zh-TW", "ja", "ko",
+    "en-US", "en-GB", "pt-BR",
+]
+
+# Timezone offsets as strings (for extra variation — not a Telethon param
+# but useful if you later pass it via other means)
+_TIMEZONES = [
+    "UTC+3", "UTC+5", "UTC+6", "UTC+7",   # Russia/CIS
+    "UTC+0", "UTC+1", "UTC+2",             # Europe
+    "UTC+4", "UTC+8",                      # UAE, China
+    "UTC-5", "UTC-8",                      # Americas
+]
 
 
 def _random_fingerprint() -> dict:
-    """Generate a random Telegram client device fingerprint."""
+    """Generate a fully randomized Telegram client device fingerprint.
+
+    Each clone gets a unique combination of device model, Android build,
+    Telegram app version and locale — no two sessions look like the same device.
+    """
+    lang = random.choice(_LANG_CODES)
+    # system_lang_code may differ slightly from app lang_code (realistic)
+    sys_lang = random.choice(_LANG_CODES) if random.random() > 0.6 else lang
     return {
         "device_model": random.choice(_DEVICE_MODELS),
         "system_version": random.choice(_SYSTEM_VERSIONS),
         "app_version": random.choice(_APP_VERSIONS),
-        "lang_code": random.choice(_LANG_CODES),
-        "system_lang_code": random.choice(_LANG_CODES),
+        "lang_code": lang,
+        "system_lang_code": sys_lang,
     }
 
 
