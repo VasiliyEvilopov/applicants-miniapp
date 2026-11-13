@@ -9,7 +9,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
 <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
-<script type="module" src="app.mjs?v=5"></script>
+<script type="module" src="app.mjs?v=6"></script>
 </head>
 <body>
 <div class="shell">
@@ -31,15 +31,15 @@
 <section id="view-cloner" class="view" hidden>
 <p class="eyebrow">ДОПОЛНИТЕЛЬНАЯ АВТОРИЗАЦИЯ</p>
 <h1>Клонер TData</h1>
-<p class="intro">Загрузите TData и укажите прокси — получите новую авторизацию в тот же аккаунт.</p>
+<p class="intro">Загрузите один или несколько .zip с TData — получите один архив с новыми сессиями.</p>
 <section class="card">
   <div class="card-title"><h2>Параметры</h2></div>
   <form id="cloner-form">
-    <label for="cloner-proxy">Прокси <span class="hint">(ip:port:user:pass или socks5://...)</span></label>
+    <label for="cloner-proxy">Прокси SOCKS5 <span class="hint">(ip:port:user:pass или socks5://..., или «-» без прокси)</span></label>
     <input id="cloner-proxy" type="text" placeholder="1.2.3.4:1080:user:pass" spellcheck="false" autocomplete="off">
-    <label for="cloner-file" style="margin-top:12px">TData архив (.zip с папкой tdata)</label>
-    <label class="file-button" style="margin-top:4px">↥ Выбрать .zip<input id="cloner-file" type="file" accept=".zip,application/zip"></label>
-    <p id="cloner-filename" class="hint" style="margin-top:4px"></p>
+    <label style="margin-top:12px">Архивы TData <span class="hint">(можно выбрать несколько .zip)</span></label>
+    <label class="file-button" style="margin-top:4px">↥ Выбрать .zip файлы<input id="cloner-file" type="file" accept=".zip,application/zip" multiple></label>
+    <ul id="cloner-filelist" class="hint" style="margin-top:4px;padding-left:16px;list-style:disc"></ul>
     <button class="primary" type="submit" id="cloner-submit" style="margin-top:16px">Клонировать ⟳</button>
   </form>
 </section>
@@ -47,7 +47,7 @@
   <div class="card-title"><h2>Статус</h2></div>
   <p id="cloner-status-text" class="hint">Инициализация…</p>
   <div id="cloner-progress" class="cloner-progress" hidden></div>
-  <button id="cloner-download" class="primary" hidden>↓ Скачать new_tdata.zip</button>
+  <button id="cloner-download" class="primary" hidden>↓ Скачать cloned_tdata.zip</button>
 </section>
 </section>
 <section class="backup"><div><h2>Ваши данные — с вами</h2><p id="storage-help">Загрузка хранилища…</p></div><div class="actions"><button id="export">↓ Резервная копия</button><label class="file-button button">↥ Импорт .json<input id="import" type="file" accept=".json,application/json"></label></div></section>

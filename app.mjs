@@ -140,38 +140,43 @@ let clonerJobId = null;
 let clonerPollTimer = null;
 
 $('cloner-file').onchange = e => {
-  const f = e.target.files[0];
-  $('cloner-filename').textContent = f ? `Выбрано: ${f.name}` : '';
+  const files = [...e.target.files];
+  const list = $('cloner-filelist');
+  list.innerHTML = '';
+  files.forEach(f => {
+    const li = document.createElement('li');
+    li.textContent = f.name;
+    list.append(li);
+  });
 };
 
 $('cloner-form').onsubmit = async e => {
   e.preventDefault();
   const proxy = $('cloner-proxy').value.trim();
-  const fileInput = $('cloner-file');
-  const file = fileInput.files[0];
+  const files = [...$('cloner-file').files];
 
-  if (!proxy) { toast('Укажите прокси.'); return; }
-  if (!file)  { toast('Выберите .zip архив.'); return; }
+  if (!proxy) { toast('Укажите прокси или «-» для работы без него.'); return; }
+  if (!files.length) { toast('Выберите хотя бы один .zip архив.'); return; }
 
   $('cloner-submit').disabled = true;
   $('cloner-status-card').hidden = false;
-  $('cloner-status-text').textContent = '⏳ Отправка…';
+  $('cloner-status-text').textContent = `⏳ Отправка ${files.length} файл(ов)…`;
   $('cloner-download').hidden = true;
   if (clonerPollTimer) clearInterval(clonerPollTimer);
 
   try {
     const fd = new FormData();
     fd.append('proxy', proxy);
-    fd.append('tdata_zip', file, file.name);
+    for (const f of files) fd.append('tdata_zip', f, f.name);
 
     const resp = await fetch(`${CLONER_API}/clone`, { method: 'POST', body: fd });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({detail: resp.statusText}));
       throw new Error(err.detail || resp.statusText);
     }
-    const { job_id } = await resp.json();
+    const { job_id, files: cnt } = await resp.json();
     clonerJobId = job_id;
-    $('cloner-status-text').textContent = '🔄 Клонирование…';
+    $('cloner-status-text').textContent = `🔄 Клонирование ${cnt ?? files.length} архив(ов)…`;
     clonerPollTimer = setInterval(clonerPoll, 3000);
   } catch (err) {
     $('cloner-status-text').textContent = `❌ Ошибка: ${err.message}`;
@@ -186,7 +191,9 @@ async function clonerPoll() {
     const j = await r.json();
     if (j.status === 'done') {
       clearInterval(clonerPollTimer);
-      $('cloner-status-text').textContent = '✅ Готово! Скачайте новую TData.';
+      const ok = j.ok_count ?? '?';
+      const total = j.total ?? '?';
+      $('cloner-status-text').textContent = `✅ Готово! Склонировано: ${ok}/${total}`;
       $('cloner-download').hidden = false;
       $('cloner-submit').disabled = false;
     } else if (j.status === 'error') {
@@ -194,7 +201,10 @@ async function clonerPoll() {
       $('cloner-status-text').textContent = `❌ Ошибка: ${j.error || 'неизвестная ошибка'}`;
       $('cloner-submit').disabled = false;
     } else {
-      $('cloner-status-text').textContent = '🔄 Клонирование… (проверяем код из 777000)';
+      const ok = j.ok_count ?? 0;
+      const total = j.total ?? '?';
+      $('cloner-status-text').textContent =
+        `🔄 Клонирование… ${ok > 0 ? ok + '/' + total + ' готово ' : ''}(ждём коды)`;
     }
   } catch {}
 }
@@ -203,7 +213,7 @@ $('cloner-download').onclick = () => {
   if (!clonerJobId) return;
   const a = document.createElement('a');
   a.href = `${CLONER_API}/result/${clonerJobId}`;
-  a.download = 'new_tdata.zip';
+  a.download = 'cloned_tdata.zip';
   document.body.append(a);
   a.click();
   a.remove();
