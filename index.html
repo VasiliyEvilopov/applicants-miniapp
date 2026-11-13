@@ -3,19 +3,19 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f4f6fa">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://applicants-miniapp-production.up.railway.app; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>ApplicantsTools — склад откликов</title>
 <meta name="description" content="Склад юзернеймов и телефонов: партии, выдачи, история и сортировка. Mini App для Telegram.">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
 <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
-<script type="module" src="app.mjs?v=4"></script>
+<script type="module" src="app.mjs?v=5"></script>
 </head>
 <body>
 <div class="shell">
 <header class="top"><a class="brand" href="./" aria-label="ApplicantsTools — главная"><span class="brand-icon">a<span>·</span></span><span>Applicants<span class="brand-light">Tools</span></span></a><span class="edition">MINI APP</span></header>
 <div class="status-row"><span id="storage-status" class="status"><i></i> Подключение…</span><button id="refresh" class="text-button" aria-label="Обновить склад">↻ Обновить</button></div>
-<nav class="nav" aria-label="Разделы"><button data-view="stock" aria-current="page">Склад</button><button data-view="sort">Сортировка</button><button data-view="history">История <span id="history-count">0</span></button></nav>
+<nav class="nav" aria-label="Разделы"><button data-view="stock" aria-current="page">Склад</button><button data-view="sort">Сортировка</button><button data-view="history">История <span id="history-count">0</span></button><button data-view="cloner">Клонер</button></nav>
 <div id="notice" class="notice" role="status" hidden></div>
 <main>
 <section id="view-stock" class="view">
@@ -28,6 +28,28 @@
 </section>
 <section id="view-sort" class="view" hidden><p class="eyebrow">ПОРЯДОК В СПИСКАХ</p><h1>Номера в конец</h1><p class="intro">Вставьте отклики: телефоны соберутся отдельным списком, остальной текст останется на месте.</p><section class="card sort-options"><label><input id="sort-dedup" type="checkbox" checked> Убирать повторы номеров</label><label><input id="sort-norm" type="checkbox" checked> Приводить к 7XXXXXXXXXX</label><label><input id="sort-drop" type="checkbox" checked> Удалять строки, где был только номер</label><label>Разделитель <select id="sort-sep"><option value="blank">Пустая строка</option><option value="title">Номера:</option><option value="none">Без разделителя</option></select></label></section><div class="sort-grid"><section class="sort-col"><div class="card-title"><h2>Исходный текст</h2><label class="file-button">↥ Загрузить<input id="sort-file" type="file" accept=".txt,.csv,text/plain,text/csv"></label></div><textarea id="sort-input" aria-label="Исходный текст для сортировки" placeholder="Имя, телефон, комментарий…" spellcheck="false"></textarea><button id="sort-clear" class="text-button">Очистить</button></section><section class="sort-col"><div class="card-title"><h2>Результат</h2><button id="sort-copy" class="text-button">Копировать ↗</button></div><textarea id="sort-output" aria-label="Результат сортировки" readonly></textarea><div class="actions"><button id="sort-to-stock">Номера на склад →</button><button id="sort-download">Скачать .txt</button></div></section></div><p id="sort-stats" class="hint"></p><p class="footnote">Сортировка выполняется на вашем устройстве. Кнопка «Номера на склад» переносит в форму только найденные телефоны.</p></section>
 <section id="view-history" class="view" hidden><p class="eyebrow">НИЧЕГО НЕ ТЕРЯЕТСЯ</p><h1>История выдач</h1><p class="intro">Выданные списки можно открыть, скопировать снова или вернуть на склад.</p><div id="issues" class="records"></div></section>
+<section id="view-cloner" class="view" hidden>
+<p class="eyebrow">ДОПОЛНИТЕЛЬНАЯ АВТОРИЗАЦИЯ</p>
+<h1>Клонер TData</h1>
+<p class="intro">Загрузите TData и укажите прокси — получите новую авторизацию в тот же аккаунт.</p>
+<section class="card">
+  <div class="card-title"><h2>Параметры</h2></div>
+  <form id="cloner-form">
+    <label for="cloner-proxy">Прокси <span class="hint">(ip:port:user:pass или socks5://...)</span></label>
+    <input id="cloner-proxy" type="text" placeholder="1.2.3.4:1080:user:pass" spellcheck="false" autocomplete="off">
+    <label for="cloner-file" style="margin-top:12px">TData архив (.zip с папкой tdata)</label>
+    <label class="file-button" style="margin-top:4px">↥ Выбрать .zip<input id="cloner-file" type="file" accept=".zip,application/zip"></label>
+    <p id="cloner-filename" class="hint" style="margin-top:4px"></p>
+    <button class="primary" type="submit" id="cloner-submit" style="margin-top:16px">Клонировать ⟳</button>
+  </form>
+</section>
+<section class="card" id="cloner-status-card" hidden>
+  <div class="card-title"><h2>Статус</h2></div>
+  <p id="cloner-status-text" class="hint">Инициализация…</p>
+  <div id="cloner-progress" class="cloner-progress" hidden></div>
+  <button id="cloner-download" class="primary" hidden>↓ Скачать new_tdata.zip</button>
+</section>
+</section>
 <section class="backup"><div><h2>Ваши данные — с вами</h2><p id="storage-help">Загрузка хранилища…</p></div><div class="actions"><button id="export">↓ Резервная копия</button><label class="file-button button">↥ Импорт .json<input id="import" type="file" accept=".json,application/json"></label></div></section>
 </main>
 <footer><span>ApplicantsTools</span><span>Партии · Выдачи · Порядок</span></footer>

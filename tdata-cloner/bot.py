@@ -284,8 +284,19 @@ async def cmd_cancel(message: Message, state: FSMContext):
 # ── Run ───────────────────────────────────────────────────────────────────
 
 async def main():
-    logger.info("Bot starting...")
-    await dp.start_polling(bot)
+    import uvicorn
+    from api import app as fastapi_app
+
+    logger.info("Starting bot + HTTP API...")
+
+    # Run FastAPI on port 8080 alongside the bot
+    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8080, log_level="info")
+    server = uvicorn.Server(config)
+
+    await asyncio.gather(
+        dp.start_polling(bot),
+        server.serve(),
+    )
 
 
 if __name__ == "__main__":

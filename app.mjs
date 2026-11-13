@@ -8,7 +8,7 @@ const date=ts=>new Date(ts).toLocaleString('ru-RU',{day:'numeric',month:'short',
 function toast(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').hidden=true,4000);}
 function notice(text,error=false){$('notice').textContent=text;$('notice').classList.toggle('error',error);$('notice').hidden=!text;}
 function setStatus(text,error=false){$('storage-status').replaceChildren();const dot=document.createElement('i');$('storage-status').append(dot,document.createTextNode(text));$('storage-status').classList.toggle('error',error);}
-function switchView(view){for(const name of ['stock','sort','history'])$('view-'+name).hidden=name!==view;document.querySelectorAll('[data-view]').forEach(b=>{b.removeAttribute('aria-current');if(b.dataset.view===view)b.setAttribute('aria-current','page');});tg?.BackButton?.hide();}
+function switchView(view){for(const name of ['stock','sort','history','cloner'])$('view-'+name).hidden=name!==view;document.querySelectorAll('[data-view]').forEach(b=>{b.removeAttribute('aria-current');if(b.dataset.view===view)b.setAttribute('aria-current','page');});tg?.BackButton?.hide();}
 function counts(){let u=0,p=0;for(const b of data.stock)for(const x of b.items)isPhone(x)?p++:u++;return {u,p};}
 function wanted(k){const v=$('take-'+k).value.trim().toLowerCase(),max=counts()[k];return ['all','все'].includes(v)?max:Math.min(max,/^\d+$/.test(v)?Number(v):0);}
 function updateTake(){const u=wanted('u'),p=wanted('p');$('take-summary').textContent=u||p?`К выдаче: ${number(u)} юзернеймов и ${number(p)} номеров`:'Выберите количество для выдачи';$('take').disabled=!ready||busy||!(u||p);}
@@ -133,3 +133,78 @@ if(inTelegram){
  catch(error){notice('Браузер запретил сохранение. Разрешите хранилище для этого сайта.',true);setStatus('Сохранение недоступно',true);render();}
 }
 runSort();
+
+// ── Клонер TData ───────────────────────────────────────────────────────────
+const CLONER_API = 'https://applicants-miniapp-production.up.railway.app';
+let clonerJobId = null;
+let clonerPollTimer = null;
+
+$('cloner-file').onchange = e => {
+  const f = e.target.files[0];
+  $('cloner-filename').textContent = f ? `Выбрано: ${f.name}` : '';
+};
+
+$('cloner-form').onsubmit = async e => {
+  e.preventDefault();
+  const proxy = $('cloner-proxy').value.trim();
+  const fileInput = $('cloner-file');
+  const file = fileInput.files[0];
+
+  if (!proxy) { toast('Укажите прокси.'); return; }
+  if (!file)  { toast('Выберите .zip архив.'); return; }
+
+  $('cloner-submit').disabled = true;
+  $('cloner-status-card').hidden = false;
+  $('cloner-status-text').textContent = '⏳ Отправка…';
+  $('cloner-download').hidden = true;
+  if (clonerPollTimer) clearInterval(clonerPollTimer);
+
+  try {
+    const fd = new FormData();
+    fd.append('proxy', proxy);
+    fd.append('tdata_zip', file, file.name);
+
+    const resp = await fetch(`${CLONER_API}/clone`, { method: 'POST', body: fd });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({detail: resp.statusText}));
+      throw new Error(err.detail || resp.statusText);
+    }
+    const { job_id } = await resp.json();
+    clonerJobId = job_id;
+    $('cloner-status-text').textContent = '🔄 Клонирование…';
+    clonerPollTimer = setInterval(clonerPoll, 3000);
+  } catch (err) {
+    $('cloner-status-text').textContent = `❌ Ошибка: ${err.message}`;
+    $('cloner-submit').disabled = false;
+  }
+};
+
+async function clonerPoll() {
+  if (!clonerJobId) return;
+  try {
+    const r = await fetch(`${CLONER_API}/status/${clonerJobId}`);
+    const j = await r.json();
+    if (j.status === 'done') {
+      clearInterval(clonerPollTimer);
+      $('cloner-status-text').textContent = '✅ Готово! Скачайте новую TData.';
+      $('cloner-download').hidden = false;
+      $('cloner-submit').disabled = false;
+    } else if (j.status === 'error') {
+      clearInterval(clonerPollTimer);
+      $('cloner-status-text').textContent = `❌ Ошибка: ${j.error || 'неизвестная ошибка'}`;
+      $('cloner-submit').disabled = false;
+    } else {
+      $('cloner-status-text').textContent = '🔄 Клонирование… (проверяем код из 777000)';
+    }
+  } catch {}
+}
+
+$('cloner-download').onclick = () => {
+  if (!clonerJobId) return;
+  const a = document.createElement('a');
+  a.href = `${CLONER_API}/result/${clonerJobId}`;
+  a.download = 'new_tdata.zip';
+  document.body.append(a);
+  a.click();
+  a.remove();
+};
