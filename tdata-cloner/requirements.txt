@@ -1,6 +1,6 @@
 aiogram==3.13.1
 telethon==1.36.0
-opentele==1.15.1
+tgcrypto
 PySocks==1.7.1
 fastapi==0.115.5
 uvicorn[standard]==0.32.1
