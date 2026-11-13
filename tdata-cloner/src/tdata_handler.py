@@ -441,8 +441,14 @@ async def tdata_to_client(
         api_id=api_id,
         api_hash=api_hash,
         proxy=proxy,
+        connection_retries=1,
+        timeout=20,
     )
-    await client.connect()
+    try:
+        await asyncio.wait_for(client.connect(), timeout=30)
+    except asyncio.TimeoutError:
+        await client.disconnect()
+        raise RuntimeError("Не удалось подключиться к Telegram (таймаут 30с). Проверь прокси.")
     if not await client.is_user_authorized():
         raise RuntimeError("Session from TData is not authorized (expired/revoked?)")
     return client

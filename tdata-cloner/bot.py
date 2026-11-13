@@ -145,16 +145,17 @@ async def got_tdata(message: Message, state: FSMContext):
     await state.update_data(work_dir=work_dir, tdata_path=tdata_path)
     await state.set_state(CloneStates.cloning)
 
-    # Start cloning
-    await message.answer("🔄 Начинаю клонирование сессии...")
-
     output_dir = os.path.join(work_dir, "output")
+
+    async def on_progress(text: str):
+        await message.answer(text)
 
     cloner = TDataCloner(
         api_id=API_ID,
         api_hash=API_HASH,
         proxy=proxy,
         code_timeout=90,
+        on_progress=on_progress,
     )
 
     try:
@@ -209,7 +210,9 @@ async def got_2fa(message: Message, state: FSMContext):
         return
 
     ud = user_data[uid]
-    await message.answer("🔄 Повторяю клонирование с паролем...")
+
+    async def on_progress_2fa(text: str):
+        await message.answer(text)
 
     cloner = TDataCloner(
         api_id=API_ID,
@@ -217,6 +220,7 @@ async def got_2fa(message: Message, state: FSMContext):
         proxy=ud["proxy"],
         code_timeout=90,
         two_fa_password=password,
+        on_progress=on_progress_2fa,
     )
 
     try:
