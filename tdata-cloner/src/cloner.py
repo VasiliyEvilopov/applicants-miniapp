@@ -46,6 +46,7 @@ class TDataCloner:
         self.two_fa_password = two_fa_password
         self.on_progress = on_progress
 
+        self._phone: str = "unknown"
         self._client1: Optional[TelegramClient] = None
         self._client2: Optional[TelegramClient] = None
 
@@ -56,7 +57,8 @@ class TDataCloner:
             except Exception:
                 pass
 
-    async def clone(self, tdata_path: str, output_dir: str) -> str:
+    async def clone(self, tdata_path: str, output_dir: str) -> tuple[str, str]:
+        """Returns (phone, new_tdata_path)."""
         try:
             return await self._do_clone(tdata_path, output_dir)
         finally:
@@ -75,9 +77,10 @@ class TDataCloner:
             proxy=proxy_tuple,
         )
         me = await self._client1.get_me()
-        phone = f"+{me.phone}"
-        logger.info(f"Account: {me.first_name} ({phone})")
-        await self._progress(f"✅ Аккаунт: {me.first_name} ({phone})")
+        phone = me.phone  # digits only, no "+"
+        logger.info(f"Account: {me.first_name} (+{phone})")
+        await self._progress(f"✅ Аккаунт: {me.first_name} (+{phone})")
+        self._phone = phone
 
         # ── Step 2: Create second client for fresh auth ───────────────────
         await self._progress("📡 Запрашиваю код авторизации...")
@@ -149,7 +152,7 @@ class TDataCloner:
         logger.info("Step 5: Exporting new session to TData...")
         tdata_out = await client_to_tdata(self._client2, output_dir)
 
-        return tdata_out
+        return self._phone, tdata_out
 
     async def _cleanup(self):
         for client in (self._client1, self._client2):
