@@ -3,7 +3,7 @@ Telegram Bot — TData Cloner (batch mode).
 
 Flow:
   1. /start → proxy
-  2. Send 1..N zip files (each is one or many accounts)
+  2. Send 1..N archive files (zip / tar / tar.gz / tgz / rar / 7z)
   3. After 15s of no new uploads → auto-start cloning
   4. All accounts cloned in parallel (MAX_CONCURRENT)
   5. One result zip back, each tdata named by phone number
@@ -13,10 +13,23 @@ import asyncio
 import logging
 import os
 import shutil
+import tarfile
 import tempfile
 import zipfile
 from pathlib import Path
 from typing import Optional
+
+try:
+    import rarfile          # pip install rarfile
+    _HAS_RAR = True
+except ImportError:
+    _HAS_RAR = False
+
+try:
+    import py7zr            # pip install py7zr
+    _HAS_7Z = True
+except ImportError:
+    _HAS_7Z = False
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
@@ -109,7 +122,7 @@ async def got_proxy(message: Message, state: FSMContext):
     label = "Без прокси" if not proxy_str else f"Прокси принят"
     await message.answer(
         f"✅ {label}.\n\n"
-        "📦 Отправляй <b>.zip файлы</b> — по одному или сразу пачкой.\n"
+        "📦 Отправляй архивы (<b>zip, tar, tar.gz, rar, 7z</b>) — по одному или сразу пачкой.\n"
         f"Через <b>{COLLECT_TIMEOUT}с</b> после последнего файла начнётся клонирование.\n"
         "Или нажми /go чтобы стартовать сразу.",
         parse_mode="HTML"
@@ -117,13 +130,35 @@ async def got_proxy(message: Message, state: FSMContext):
     await state.set_state(CloneStates.collecting)
 
 
+def _is_supported_archive(filename: str) -> bool:
+    """Return True for any archive format we can extract."""
+    name = filename.lower()
+    return (
+        name.endswith(".zip")
+        or name.endswith(".tar")
+        or name.endswith(".tar.gz")
+        or name.endswith(".tgz")
+        or name.endswith(".tar.bz2")
+        or name.endswith(".tbz2")
+        or name.endswith(".tar.xz")
+        or name.endswith(".txz")
+        or (_HAS_RAR and name.endswith(".rar"))
+        or (_HAS_7Z and name.endswith(".7z"))
+    )
+
+
 @dp.message(CloneStates.collecting, F.document)
 async def got_zip(message: Message, state: FSMContext):
     doc: Document = message.document
     uid = message.from_user.id
 
-    if not doc.file_name.lower().endswith(".zip"):
-        await message.answer("⚠️ Нужен .zip файл, пропускаю.")
+    if not _is_supported_archive(doc.file_name or ""):
+        supported = "zip, tar, tar.gz, tgz"
+        if _HAS_RAR:
+            supported += ", rar"
+        if _HAS_7Z:
+            supported += ", 7z"
+        await message.answer(f"⚠️ Формат не поддерживается. Принимаю: {supported}")
         return
 
     if uid not in _work_dirs:
@@ -227,21 +262,18 @@ async def process_all(work_dir: str, proxy, message: Message) -> Optional[str]:
     os.makedirs(extract_dir, exist_ok=True)
     os.makedirs(output_dir, exist_ok=True)
 
-    # Extract every uploaded zip
+    # Extract every uploaded archive
     for fname in sorted(os.listdir(zips_dir)):
-        if not fname.lower().endswith(".zip"):
+        if not _is_supported_archive(fname):
             continue
-        zip_p = os.path.join(zips_dir, fname)
-        out_d = os.path.join(extract_dir, fname[:-4])
+        arc_p = os.path.join(zips_dir, fname)
+        out_d = os.path.join(extract_dir, Path(fname).stem)
         os.makedirs(out_d, exist_ok=True)
-        try:
-            with zipfile.ZipFile(zip_p, "r") as zf:
-                zf.extractall(out_d)
-        except zipfile.BadZipFile:
-            await message.answer(f"⚠️ Пропускаю повреждённый архив: {fname}")
+        if not _extract_archive(arc_p, out_d):
+            await message.answer(f"⚠️ Не удалось распаковать: {fname}")
 
-    # Expand any nested zips inside
-    expand_nested_zips(extract_dir)
+    # Expand any nested archives inside
+    expand_nested_archives(extract_dir)
 
     # Find all tdata folders
     tdata_paths = find_all_tdata(extract_dir)
@@ -357,28 +389,62 @@ async def clone_account(
 # ── Helpers ───────────────────────────────────────────────────────────────
 
 
+def _extract_archive(archive_path: str, out_dir: str) -> bool:
+    """Extract any supported archive to out_dir. Returns True on success."""
+    name = archive_path.lower()
+    try:
+        if name.endswith(".zip"):
+            with zipfile.ZipFile(archive_path, "r") as zf:
+                zf.extractall(out_dir)
+        elif (name.endswith(".tar.gz") or name.endswith(".tgz")
+              or name.endswith(".tar.bz2") or name.endswith(".tbz2")
+              or name.endswith(".tar.xz") or name.endswith(".txz")
+              or name.endswith(".tar")):
+            with tarfile.open(archive_path, "r:*") as tf:
+                tf.extractall(out_dir)
+        elif name.endswith(".rar") and _HAS_RAR:
+            with rarfile.RarFile(archive_path) as rf:
+                rf.extractall(out_dir)
+        elif name.endswith(".7z") and _HAS_7Z:
+            with py7zr.SevenZipFile(archive_path, mode="r") as sz:
+                sz.extractall(path=out_dir)
+        else:
+            return False
+        return True
+    except Exception as e:
+        logger.warning(f"Extract failed {os.path.basename(archive_path)}: {e}")
+        return False
+
+
 def expand_nested_zips(base_dir: str):
-    """Recursively extract .zip files found inside base_dir."""
+    """Alias kept for compatibility — calls expand_nested_archives."""
+    expand_nested_archives(base_dir)
+
+
+def expand_nested_archives(base_dir: str):
+    """Recursively extract any supported archive files found inside base_dir."""
     changed = True
     while changed:
         changed = False
         for root, dirs, files in os.walk(base_dir):
             dirs[:] = [d for d in dirs if not d.startswith("__") and not d.startswith(".")]
             for fname in files:
-                if not fname.lower().endswith(".zip"):
+                if not _is_supported_archive(fname):
                     continue
-                zip_p = os.path.join(root, fname)
-                out_d = os.path.join(root, fname[:-4])
+                arc_p = os.path.join(root, fname)
+                # strip known double extensions (.tar.gz etc)
+                for ext in (".tar.gz", ".tar.bz2", ".tar.xz", ".tgz", ".tbz2", ".txz",
+                            ".zip", ".rar", ".7z", ".tar"):
+                    if fname.lower().endswith(ext):
+                        stem = fname[: -len(ext)]
+                        break
+                out_d = os.path.join(root, stem)
                 if os.path.exists(out_d):
                     continue
-                try:
-                    os.makedirs(out_d, exist_ok=True)
-                    with zipfile.ZipFile(zip_p, "r") as zf:
-                        zf.extractall(out_d)
-                    logger.info(f"Expanded nested zip: {fname}")
+                os.makedirs(out_d, exist_ok=True)
+                if _extract_archive(arc_p, out_d):
+                    logger.info(f"Expanded nested archive: {fname}")
                     changed = True
-                except Exception as e:
-                    logger.warning(f"Skip bad zip {fname}: {e}")
 
 
 def find_all_tdata(base_dir: str) -> list[str]:
