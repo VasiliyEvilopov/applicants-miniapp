@@ -276,6 +276,30 @@ class TDataCloner:
         await self._progress(f"✅ Аккаунт: {me.first_name} (+{phone})")
         self._phone = phone
 
+        # ── Step 1b: Remove 2FA if password provided ──────────────────────
+        if self.two_fa_password:
+            await self._progress("🔓 Снимаю 2FA с аккаунта...")
+            logger.info("Step 1b: Removing 2FA password via client1...")
+            try:
+                await self._client1.edit_2fa(
+                    current_password=self.two_fa_password,
+                    new_password="",
+                )
+                logger.info("2FA removed successfully")
+                await self._progress("✅ 2FA снята, продолжаю клонирование...")
+                # After removing 2FA we no longer need the password for sign_in
+                self._2fa_removed = True
+            except Exception as e:
+                err_text = str(e)
+                # PasswordHashInvalidError — wrong password
+                if "PasswordHashInvalid" in err_text or "PASSWORD_HASH_INVALID" in err_text:
+                    raise ValueError(f"Неверный пароль 2FA: {self.two_fa_password!r}")
+                # 2FA might not be set at all — treat as non-fatal and continue
+                logger.warning("edit_2fa error (may not have 2FA): %s", err_text)
+                await self._progress("⚠️ Не удалось снять 2FA, попробую войти с паролем...")
+        else:
+            self._2fa_removed = False
+
         # ── Step 2: Create second client for fresh auth ───────────────────
         await self._progress("📡 Запрашиваю код авторизации...")
         logger.info("Step 2: Starting fresh authorization...")
@@ -331,13 +355,21 @@ class TDataCloner:
                 phone_code_hash=sent.phone_code_hash,
             )
         except SessionPasswordNeededError:
-            if not self.two_fa_password:
+            if getattr(self, "_2fa_removed", False):
+                # We already removed 2FA — race condition or Telegram cached it;
+                # wait a moment and retry with the password just in case
+                logger.warning("2FA still active despite removal attempt, retrying with password")
+                await self._progress("⚠️ 2FA ещё активна, ввожу пароль...")
+                await asyncio.sleep(2)
+                await self._client2.sign_in(password=self.two_fa_password)
+            elif self.two_fa_password:
+                logger.info("2FA required, entering password...")
+                await self._client2.sign_in(password=self.two_fa_password)
+            else:
                 raise ValueError(
-                    "Account has 2FA enabled but no password provided. "
-                    "Pass --password flag."
+                    "У аккаунта включена 2FA, но пароль не предоставлен. "
+                    "Положи файл 2fa.txt рядом с tdata."
                 )
-            logger.info("2FA required, entering password...")
-            await self._client2.sign_in(password=self.two_fa_password)
         except PhoneCodeInvalidError:
             raise ValueError(f"Auth code {code} is invalid")
         except PhoneCodeExpiredError:
