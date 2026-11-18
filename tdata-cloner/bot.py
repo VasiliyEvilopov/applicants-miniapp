@@ -325,11 +325,16 @@ async def clone_account(
         acc_out = os.path.join(output_dir, f"slot_{idx:03d}")
         os.makedirs(acc_out, exist_ok=True)
 
+        two_fa = find_2fa_password(tdata_path)
+        if two_fa:
+            await on_progress("🔐 Найден файл с паролем 2FA")
+
         cloner = TDataCloner(
             api_id=API_ID,
             api_hash=API_HASH,
             proxy=proxy,
             code_timeout=90,
+            two_fa_password=two_fa,
             on_progress=on_progress,
         )
 
@@ -340,7 +345,7 @@ async def clone_account(
         except ValueError as e:
             err = str(e)
             if "2FA" in err or "password" in err.lower():
-                return label, None, "2FA (не поддерживается в батч-режиме)"
+                return label, None, "❌ 2FA: неверный пароль или файл не найден"
             return label, None, err
         except TimeoutError as e:
             return label, None, f"таймаут: {e}"
@@ -389,6 +394,38 @@ def find_all_tdata(base_dir: str) -> list[str]:
         for d in to_remove:
             dirs.remove(d)
     return result
+
+
+_2FA_FILENAMES = {"2fa", "password", "pass", "пароль", "2фа", "twofa", "two_fa", "pwd"}
+
+
+def find_2fa_password(tdata_path: str) -> Optional[str]:
+    """Look for a 2FA password .txt file next to (or inside) the tdata folder.
+
+    Supported layouts:
+        account/tdata/   + account/2fa.txt
+        account/tdata/   + account/password.txt
+        account/tdata/2fa.txt
+    """
+    for search_dir in (os.path.dirname(tdata_path), tdata_path):
+        if not os.path.isdir(search_dir):
+            continue
+        try:
+            entries = os.listdir(search_dir)
+        except OSError:
+            continue
+        for fname in entries:
+            name, ext = os.path.splitext(fname)
+            if ext.lower() == ".txt" and name.lower() in _2FA_FILENAMES:
+                fpath = os.path.join(search_dir, fname)
+                try:
+                    pw = open(fpath, encoding="utf-8", errors="ignore").read().strip()
+                    if pw:
+                        logger.info(f"2FA file found: {fname}")
+                        return pw
+                except OSError:
+                    pass
+    return None
 
 
 def _cancel_timer(uid: int):

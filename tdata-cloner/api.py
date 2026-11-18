@@ -102,11 +102,60 @@ def _find_all_tdata(base_dir: str) -> list[str]:
     return result
 
 
+# Names that signal a 2FA/password file (case-insensitive, without extension)
+_2FA_FILENAMES = {"2fa", "password", "pass", "пароль", "2фа", "twofa", "two_fa", "pwd"}
+
+
+def _find_2fa_password(tdata_path: str) -> str | None:
+    """Look for a 2FA password in a .txt file next to the tdata folder.
+
+    Searches the same directory that contains the tdata folder and also
+    the parent of that directory, so both layouts work:
+
+        account/
+          tdata/          ← tdata_path
+          2fa.txt         ← found here
+
+        account/
+          tdata/
+            2fa.txt       ← also checked inside tdata itself
+    """
+    # directories to search: parent of tdata, and tdata itself
+    search_dirs = [
+        os.path.dirname(tdata_path),   # sibling of tdata/
+        tdata_path,                    # inside tdata/
+    ]
+    for search_dir in search_dirs:
+        if not os.path.isdir(search_dir):
+            continue
+        try:
+            entries = os.listdir(search_dir)
+        except OSError:
+            continue
+        for fname in entries:
+            name, ext = os.path.splitext(fname)
+            if ext.lower() == ".txt" and name.lower() in _2FA_FILENAMES:
+                fpath = os.path.join(search_dir, fname)
+                try:
+                    password = open(fpath, encoding="utf-8", errors="ignore").read().strip()
+                    if password:
+                        logger.info(f"Found 2FA password file: {fname} in {search_dir}")
+                        return password
+                except OSError:
+                    pass
+    return None
+
+
 async def _clone_one(idx: int, tdata_path: str, output_dir: str, proxy, semaphore, job_id: str):
     async with semaphore:
         acc_out = os.path.join(output_dir, f"slot_{idx:03d}")
         os.makedirs(acc_out, exist_ok=True)
-        cloner = TDataCloner(api_id=API_ID, api_hash=API_HASH, proxy=proxy, code_timeout=90)
+        two_fa = _find_2fa_password(tdata_path)
+        cloner = TDataCloner(
+            api_id=API_ID, api_hash=API_HASH,
+            proxy=proxy, code_timeout=90,
+            two_fa_password=two_fa,
+        )
         try:
             phone, new_tdata = await cloner.clone(tdata_path, acc_out)
             return phone, new_tdata, None
