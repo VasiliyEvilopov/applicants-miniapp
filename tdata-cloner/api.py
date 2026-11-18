@@ -89,7 +89,9 @@ def _expand_nested_zips(base_dir: str):
 
 
 def _find_all_tdata(base_dir: str) -> list[str]:
+    """Find ALL tdata/ folders AND Telethon .session files."""
     result = []
+    seen_sessions: set[str] = set()
     for root, dirs, files in os.walk(base_dir):
         dirs[:] = [d for d in dirs if not d.startswith("__") and not d.startswith(".")]
         to_remove = []
@@ -99,6 +101,14 @@ def _find_all_tdata(base_dir: str) -> list[str]:
                 to_remove.append(d)
         for d in to_remove:
             dirs.remove(d)
+        for fname in files:
+            if not fname.lower().endswith(".session"):
+                continue
+            stem = fname[:-8]
+            if not stem or stem in seen_sessions:
+                continue
+            seen_sessions.add(stem)
+            result.append(os.path.join(root, fname))
     return result
 
 

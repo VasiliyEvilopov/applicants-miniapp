@@ -20,7 +20,7 @@ from telethon.errors import (
     FloodWaitError,
 )
 
-from .tdata_handler import tdata_to_client, client_to_tdata
+from .tdata_handler import tdata_to_client, session_to_client, client_to_tdata
 from .code_reader import wait_for_code
 from .proxy_utils import Proxy
 
@@ -230,25 +230,46 @@ class TDataCloner:
             except Exception:
                 pass
 
-    async def clone(self, tdata_path: str, output_dir: str) -> tuple[str, str]:
-        """Returns (phone, new_tdata_path)."""
+    async def clone(self, source_path: str, output_dir: str) -> tuple[str, str]:
+        """Returns (phone, new_tdata_path).
+
+        source_path can be:
+          - a tdata/ folder  (Telegram Desktop session)
+          - a /path/to/phone.session file (Telethon SQLite session)
+        """
         try:
-            return await self._do_clone(tdata_path, output_dir)
+            return await self._do_clone(source_path, output_dir)
         finally:
             await self._cleanup()
 
-    async def _do_clone(self, tdata_path: str, output_dir: str) -> str:
+    @staticmethod
+    def _is_session_file(path: str) -> bool:
+        """True if path points to a Telethon .session file."""
+        p = path.rstrip("/\\")
+        return p.endswith(".session") and os.path.isfile(p)
+
+    async def _do_clone(self, source_path: str, output_dir: str) -> str:
         proxy_tuple = self.proxy.to_telethon() if self.proxy else None
 
-        # ── Step 1: Load source TData ──────────────────────────────────────
-        await self._progress("🔑 Читаю TData и подключаюсь к Telegram...")
-        logger.info("Step 1: Loading source TData...")
-        self._client1 = await tdata_to_client(
-            tdata_path=tdata_path,
-            api_id=self.api_id,
-            api_hash=self.api_hash,
-            proxy=proxy_tuple,
-        )
+        # ── Step 1: Load source session (TData or .session file) ──────────
+        if self._is_session_file(source_path):
+            await self._progress("🔑 Читаю .session файл и подключаюсь к Telegram...")
+            logger.info("Step 1: Loading Telethon session file %s", source_path)
+            self._client1 = await session_to_client(
+                session_path=source_path,
+                api_id=self.api_id,
+                api_hash=self.api_hash,
+                proxy=proxy_tuple,
+            )
+        else:
+            await self._progress("🔑 Читаю TData и подключаюсь к Telegram...")
+            logger.info("Step 1: Loading TData %s", source_path)
+            self._client1 = await tdata_to_client(
+                tdata_path=source_path,
+                api_id=self.api_id,
+                api_hash=self.api_hash,
+                proxy=proxy_tuple,
+            )
         me = await self._client1.get_me()
         phone = me.phone  # digits only, no "+"
         logger.info(f"Account: {me.first_name} (+{phone})")

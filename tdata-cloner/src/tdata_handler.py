@@ -417,6 +417,41 @@ def _parse_mtp_authorization(serialized: bytes) -> Tuple[int, bytes]:
     return main_dc_id, auth_key
 
 
+async def session_to_client(
+    session_path: str,
+    api_id: int,
+    api_hash: str,
+    proxy=None,
+) -> TelegramClient:
+    """
+    Load a Telethon .session file (SQLite) and return a connected TelegramClient.
+    Pass the path with or without the .session extension.
+    """
+    # Telethon auto-appends .session if missing; strip it to avoid double extension
+    if session_path.endswith(".session"):
+        session_name = session_path[:-8]
+    else:
+        session_name = session_path
+
+    logger.info("Loading Telethon session from %s.session", session_name)
+    client = TelegramClient(
+        session=session_name,
+        api_id=api_id,
+        api_hash=api_hash,
+        proxy=proxy,
+        connection_retries=1,
+        timeout=20,
+    )
+    try:
+        await asyncio.wait_for(client.connect(), timeout=30)
+    except asyncio.TimeoutError:
+        await client.disconnect()
+        raise RuntimeError("Не удалось подключиться к Telegram (таймаут 30с). Проверь прокси.")
+    if not await client.is_user_authorized():
+        raise RuntimeError("Session file is not authorized (expired/revoked?)")
+    return client
+
+
 async def tdata_to_client(
     tdata_path: str,
     api_id: int,

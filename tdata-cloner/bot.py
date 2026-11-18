@@ -275,15 +275,20 @@ async def process_all(work_dir: str, proxy, message: Message) -> Optional[str]:
     # Expand any nested archives inside
     expand_nested_archives(extract_dir)
 
-    # Find all tdata folders
+    # Find all sources: tdata/ folders + .session files
     tdata_paths = find_all_tdata(extract_dir)
     if not tdata_paths:
-        await message.answer("❌ Не нашёл ни одной папки tdata в архивах.")
+        await message.answer("❌ Не нашёл ни одной папки tdata или .session файла в архивах.")
         return None
 
+    n_tdata   = sum(1 for p in tdata_paths if os.path.isdir(p))
+    n_session = sum(1 for p in tdata_paths if p.endswith(".session"))
     total = len(tdata_paths)
+    parts = []
+    if n_tdata:   parts.append(f"TData: {n_tdata}")
+    if n_session: parts.append(f".session: {n_session}")
     await message.answer(
-        f"🔍 Найдено аккаунтов: <b>{total}</b>\n"
+        f"🔍 Найдено аккаунтов: <b>{total}</b> ({', '.join(parts)})\n"
         f"⚙️ Параллельно: до {MAX_CONCURRENT}",
         parse_mode="HTML"
     )
@@ -448,10 +453,19 @@ def expand_nested_archives(base_dir: str):
 
 
 def find_all_tdata(base_dir: str) -> list[str]:
-    """Find ALL tdata/ folders, skip macOS metadata."""
+    """Find ALL tdata/ folders AND Telethon .session files. Skip macOS metadata.
+
+    Returns a list of source paths — each is either:
+      - a tdata/ folder path
+      - a /path/to/phone.session file path
+    """
     result = []
+    seen_sessions: set[str] = set()
+
     for root, dirs, files in os.walk(base_dir):
         dirs[:] = [d for d in dirs if not d.startswith("__") and not d.startswith(".")]
+
+        # tdata/ folders
         to_remove = []
         for d in dirs:
             if d.lower() == "tdata":
@@ -459,6 +473,19 @@ def find_all_tdata(base_dir: str) -> list[str]:
                 to_remove.append(d)
         for d in to_remove:
             dirs.remove(d)
+
+        # Telethon .session files (avoid duplicates from same stem)
+        for fname in files:
+            if not fname.lower().endswith(".session"):
+                continue
+            session_path = os.path.join(root, fname)
+            stem = fname[:-8]  # strip .session
+            # skip empty-stem or already seen
+            if not stem or stem in seen_sessions:
+                continue
+            seen_sessions.add(stem)
+            result.append(session_path)
+
     return result
 
 
