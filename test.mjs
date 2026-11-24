@@ -3,6 +3,46 @@ import assert from 'node:assert/strict';
 import {CloudStore,LocalStore,validate,EMPTY} from './storage.mjs';
 import {add,take,takeMixed,mixedCounts,issueText,restore,sort} from './core.mjs';
 function fakeCloud(){const map=new Map();let fail=false;return {map,set fail(v){fail=v},getItem(k,cb){cb(null,map.get(k)||'')},getItems(ks,cb){cb(null,Object.fromEntries(ks.map(k=>[k,map.get(k)||''])))},getKeys(cb){cb(null,[...map.keys()])},setItem(k,v,cb){if(fail&&k!=='applicants_v1')return cb('offline');map.set(k,v);cb(null,true)},removeItems(ks,cb){ks.forEach(k=>map.delete(k));cb(null,true)}}}
+test('returning a large issue writes one key and retains batch identities across reopen',async()=>{
+ const api=fakeCloud(),store=new CloudStore(api),data=await store.load();
+ add(data,Array.from({length:12000},(_,i)=>'@candidate_'+i).concat(Array.from({length:4000},(_,i)=>String(79000000000+i))).join('\n'));
+ await store.save(data);
+ const count=data.stock.length;
+ add(data,'@extra');
+ await store.saveAddition(data,data.stock.slice(count));
+ const issue=takeMixed(data,12000);
+ await store.saveIssue(data,{users:9000,phones:3000,batchId:null,id:issue.id,takenAt:issue.takenAt,order:issue.order});
+ const oldState=structuredClone(data),draft=structuredClone(data),batches=restore(draft,issue.id);
+ const writes=[],setItem=api.setItem;
+ api.setItem=(key,value,callback)=>{writes.push(key);callback('offline');};
+ await assert.rejects(()=>store.saveRestore(draft,issue.id,batches),/offline/);
+ assert.deepEqual(await new CloudStore(api).load(),oldState);
+ api.setItem=(key,value,callback)=>{writes.push(key);setItem(key,value,callback);};
+ writes.length=0;
+ await store.saveRestore(draft,issue.id,batches);
+ assert.deepEqual(writes,['applicants_v1']);
+ const reopened=new CloudStore(api);
+ assert.deepEqual(await reopened.load(),draft);
+ assert.throws(()=>restore(draft,issue.id),/уже возвращена/);
+ const taken=take(draft,0,0,batches[0].id);
+ await reopened.saveIssue(draft,{users:0,phones:0,batchId:batches[0].id,id:taken.id,takenAt:taken.takenAt});
+ assert.deepEqual(await new CloudStore(api).load(),draft);
+ const more=draft.stock.length;
+ add(draft,'@after_return');
+ await reopened.saveAddition(draft,draft.stock.slice(more));
+ assert.deepEqual(await new CloudStore(api).load(),draft);
+ await reopened.save(draft);
+ assert.deepEqual(await new CloudStore(api).load(),draft);
+});
+test('return of an issue from the older cloud journal replays correctly',async()=>{
+ const api=fakeCloud(),store=new CloudStore(api),data=await store.load();
+ add(data,'@one\n@two\n79000000000');await store.save(data);
+ const issue=take(data,1,1);
+ await store.saveIssue(data,{users:1,phones:1,id:issue.id,takenAt:issue.takenAt});
+ const batches=restore(data,issue.id);
+ await store.saveRestore(data,issue.id,batches);
+ assert.deepEqual(await new CloudStore(api).load(),data);
+});
 test('mixed issuance uses 3 users then 1 phone and survives cloud history and restore',async()=>{
  const api=fakeCloud(),store=new CloudStore(api),data=await store.load();
  const users=Array.from({length:305},(_,i)=>'@candidate_'+i);

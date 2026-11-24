@@ -23,10 +23,16 @@ export function take(data,nu,np,batchId=null,issuedAt=null) {
  if(!got.u.length&&!got.p.length)throw Error('Нечего забирать.');
  const t={...(issuedAt ?? {id:id(),takenAt:Date.now()}),users:got.u,phones:got.p};data.issued.push(t);return t;
 }
-export function restore(data,issueId) {
+export function restore(data,issueId,batchMetadata=[]) {
  const t=data.issued.find(t=>t.id===issueId);if(!t)throw Error('Выдача уже возвращена.');
- for(const [kind,key] of [['u','users'],['p','phones']])if(t[key].length)data.stock.push({id:id(),kind,name:'Возврат выдачи',createdAt:Date.now(),total:t[key].length,items:[...t[key]]});
+ const batches=[];
+ for(const [kind,key] of [['u','users'],['p','phones']])if(t[key].length){
+  const metadata=batchMetadata.find(batch=>batch.kind===kind);
+  batches.push({id:metadata?.id??id(),kind,name:'Возврат выдачи',createdAt:metadata?.createdAt??Date.now(),total:t[key].length,items:[...t[key]]});
+ }
+ data.stock.push(...batches);
  data.issued=data.issued.filter(t=>t.id!==issueId);
+ return batches;
 }
 export function mixedCounts(total) {
  if(!Number.isSafeInteger(total) || total < 1)throw Error('Введите целое количество откликов больше нуля.');

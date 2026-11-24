@@ -1,5 +1,5 @@
-import {CloudStore,LocalStore,EMPTY,validate} from './storage.mjs?v=8';
-import {add,take,takeMixed,mixedCounts,issueText,restore,isPhone,sort} from './core.mjs?v=8';
+import {CloudStore,LocalStore,EMPTY,validate} from './storage.mjs?v=9';
+import {add,take,takeMixed,mixedCounts,issueText,restore,isPhone,sort} from './core.mjs?v=9';
 const $=id=>document.getElementById(id),tg=window.Telegram?.WebApp;
 const inTelegram=!!(tg?.initData && tg?.initDataUnsafe?.user);
 let store,data=EMPTY(),ready=false,busy=false,sortResult={result:'',phones:[],duplicates:0},currentIssue=null;
@@ -44,7 +44,7 @@ function render(){
  for(const t of [...data.issued].reverse()){
   const el=element('article','record'),head=element('div','record-head'),actions=element('div','record-actions');
   head.append(element('strong','',number(t.users.length+t.phones.length)),element('span','badge',`Юзернеймы: ${t.users.length}`),element('span','badge p',`Номера: ${t.phones.length}`),element('span','record-date',date(t.takenAt)));
-  actions.append(button('Открыть список',()=>showIssue(t)),button('Вернуть на склад',async()=>{if(await confirmAction('Вернуть выдачу?',`Контакты снова появятся на складе. Количество: ${t.users.length+t.phones.length}.`, 'Вернуть'))await mutate(d=>restore(d,t.id),()=>toast('Контакты возвращены на склад.'));}),button('Удалить',async()=>{if(await confirmAction('Удалить из истории?','Эта копия выданного списка будет удалена. Контакты на склад не возвращаются.','Удалить'))await mutate(d=>{d.issued=d.issued.filter(x=>x.id!==t.id)},()=>toast('Выдача удалена.'));},'danger'));
+  actions.append(button('Открыть список',()=>showIssue(t)),button('Вернуть на склад',async()=>{if(await confirmAction('Вернуть выдачу?',`Контакты снова появятся на складе. Количество: ${t.users.length+t.phones.length}.`, 'Вернуть'))await mutate(d=>restore(d,t.id),()=>toast('Контакты возвращены на склад.'),(draft,batches)=>store.saveRestore ? store.saveRestore(draft,t.id,batches) : store.save(draft));}),button('Удалить',async()=>{if(await confirmAction('Удалить из истории?','Эта копия выданного списка будет удалена. Контакты на склад не возвращаются.','Удалить'))await mutate(d=>{d.issued=d.issued.filter(x=>x.id!==t.id)},()=>toast('Выдача удалена.'));},'danger'));
   el.append(head,element('p','peek',[...t.users,...t.phones].slice(0,5).join(' · ')),actions);issues.append(el);
  }
  $('intake').querySelector('button[type=submit]').disabled=!ready||busy;$('export').disabled=!ready||busy;$('refresh').disabled=busy;$('import').disabled=!ready||busy;updateTake();intakeHint();
@@ -144,7 +144,7 @@ window.addEventListener('beforeunload',e=>{if(busy){e.preventDefault();e.returnV
 if(inTelegram){
  tg.ready();tg.expand();
  if(!tg.isVersionAtLeast('6.9')){notice('Для облачного склада обновите Telegram до актуальной версии.',true);setStatus('Нужно обновить Telegram',true);render();}
- else{store=new CloudStore(tg.CloudStorage);$('storage-help').textContent='Личный склад хранится в облаке Telegram и доступен с ваших устройств в этом боте. Браузерный склад переносится через резервную копию.';reload();}
+ else{store=new CloudStore(tg.CloudStorage,text=>setStatus(text));$('storage-help').textContent='Личный склад хранится в облаке Telegram и доступен с ваших устройств в этом боте. Браузерный склад переносится через резервную копию.';reload();}
 }else{
  try{store=new LocalStore(localStorage);$('storage-help').textContent='Сейчас данные сохраняются в этом браузере. После подключения к боту склад внутри Mini App будет храниться в облаке Telegram. Перенос — через резервную копию.';reload();}
  catch(error){notice('Браузер запретил сохранение. Разрешите хранилище для этого сайта.',true);setStatus('Сохранение недоступно',true);render();}

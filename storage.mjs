@@ -1,4 +1,4 @@
-import {take} from './core.mjs?v=8';
+import {take,restore} from './core.mjs?v=9';
 
 /* Personal storage: GitHub serves code; contact data stays in the browser or Telegram. */
 export const EMPTY = () => ({stock: [], issued: []});
@@ -93,8 +93,9 @@ function validSnapshot(snapshot) {
 }
 
 export class CloudStore {
-  constructor(api) {
+  constructor(api, onProgress = () => {}) {
     this.api = api;
+    this.onProgress = onProgress;
     this.revision = undefined;
     this.label = 'Облако Telegram';
   }
@@ -113,7 +114,7 @@ export class CloudStore {
       throw Error('Не удалось прочитать облачный склад. Не перезаписывайте его.');
     }
     const journal = (manifest?.v === 3 && Array.isArray(manifest.issues) ||
-      manifest?.v === 4 && Array.isArray(manifest.operations)) &&
+      [4,5].includes(manifest?.v) && Array.isArray(manifest.operations)) &&
       ['json', 'gzip'].includes(manifest.encoding);
     const supported = journal || manifest?.v === 1 || (manifest?.v === 2 && manifest.encoding === 'gzip');
     if (!supported || !validSnapshot(manifest)) {
@@ -142,9 +143,11 @@ export class CloudStore {
       return JSON.parse(await decodeSnapshot(payload, snapshot.encoding ?? 'json'));
     };
     const data = validate(await read(manifest));
-    for (const {batches, users, phones, batchId, id, takenAt, order} of operations) {
+    for (const {batches, users, phones, batchId, id, takenAt, order, restoreId, batchMetadata} of operations) {
       if (batches) {
         data.stock.push(...validate({stock: await read(batches), issued: []}).stock);
+      } else if (restoreId) {
+        restore(data, restoreId, batchMetadata);
       } else {
         take(data, users, phones, batchId, {id, takenAt, ...(order ? {order} : {})});
       }
@@ -174,7 +177,7 @@ export class CloudStore {
 
     const revision = this.revision;
     const previous = JSON.parse(revision);
-    const journal = previous.v === 4
+    const journal = [4,5].includes(previous.v)
       ? {operations: [...previous.operations, operation]}
       : {v: 3, issues: [...(previous.issues ?? []), operation]};
     const next = JSON.stringify({
@@ -188,6 +191,24 @@ export class CloudStore {
     await this.publish(revision, next);
   }
 
+  async saveRestore(data, issueId, batches) {
+    if (!this.revision) return this.save(data);
+    const revision = this.revision;
+    const {issues, operations = issues ?? [], ...base} = JSON.parse(revision);
+    const operation = {
+      restoreId: issueId,
+      batchMetadata: batches.map(({id, kind, createdAt}) => ({id, kind, createdAt})),
+    };
+    const next = JSON.stringify({
+      ...base,
+      v: 5,
+      encoding: base.encoding ?? 'json',
+      operations: [...operations, operation],
+    });
+    if (next.length > 4000) return this.save(data);
+    await this.publish(revision, next);
+  }
+
   async saveAddition(data, batches) {
     if (!batches.length) return;
     if (!this.revision) return this.save(data);
@@ -198,7 +219,7 @@ export class CloudStore {
     const {snapshot, chunks} = await this.prepareChunks(stock);
     const next = JSON.stringify({
       ...base,
-      v: 4,
+      v: base.v === 5 ? 5 : 4,
       encoding: base.encoding ?? 'json',
       operations: [...operations, {batches: snapshot}],
     });
@@ -216,6 +237,7 @@ export class CloudStore {
   }
 
   async publish(revision, next) {
+    this.onProgress('Подтверждение сохранения…');
     await this.checkRevision(revision);
     await callCloud(this.api, 'setItem', ROOT, next);
     this.revision = next;
@@ -237,6 +259,7 @@ export class CloudStore {
   async writeChunks(snapshot, chunks) {
     const keys = chunkKeys(snapshot);
     for (let i = 0; i < chunks.length; i += 4) {
+      this.onProgress(`Сохранение: ${i} из ${chunks.length} частей…`);
       await Promise.all(chunks.slice(i, i + 4).map((part, n) =>
         callCloud(this.api, 'setItem', keys[i + n], part)));
     }
@@ -246,6 +269,7 @@ export class CloudStore {
     if (this.revision === undefined) throw Error('Сначала загрузите склад.');
     const revision = this.revision;
     await this.checkRevision(revision);
+    this.onProgress('Подготовка полного сохранения…');
     const {snapshot, chunks} = await this.prepareChunks(validate(data));
     const manifest = {...snapshot, v: snapshot.encoding === 'gzip' ? 2 : 1, savedAt: Date.now()};
     await this.writeChunks(snapshot, chunks);
