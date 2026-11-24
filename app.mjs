@@ -1,5 +1,5 @@
-import {CloudStore,LocalStore,EMPTY,validate} from './storage.mjs?v=4';
-import {add,take,restore,isPhone,sort} from './core.mjs?v=4';
+import {CloudStore,LocalStore,EMPTY,validate} from './storage.mjs?v=8';
+import {add,take,takeMixed,mixedCounts,issueText,restore,isPhone,sort} from './core.mjs?v=8';
 const $=id=>document.getElementById(id),tg=window.Telegram?.WebApp;
 const inTelegram=!!(tg?.initData && tg?.initDataUnsafe?.user);
 let store,data=EMPTY(),ready=false,busy=false,sortResult={result:'',phones:[],duplicates:0},currentIssue=null;
@@ -11,7 +11,19 @@ function setStatus(text,error=false){$('storage-status').replaceChildren();const
 function switchView(view){for(const name of ['stock','sort','history','cloner'])$('view-'+name).hidden=name!==view;document.querySelectorAll('[data-view]').forEach(b=>{b.removeAttribute('aria-current');if(b.dataset.view===view)b.setAttribute('aria-current','page');});tg?.BackButton?.hide();}
 function counts(){let u=0,p=0;for(const b of data.stock)for(const x of b.items)isPhone(x)?p++:u++;return {u,p};}
 function wanted(k){const v=$('take-'+k).value.trim().toLowerCase(),max=counts()[k];return ['all','все'].includes(v)?max:Math.min(max,/^\d+$/.test(v)?Number(v):0);}
-function updateTake(){const u=wanted('u'),p=wanted('p');$('take-summary').textContent=u||p?`К выдаче: ${number(u)} юзернеймов и ${number(p)} номеров`:'Выберите количество для выдачи';$('take').disabled=!ready||busy||!(u||p);}
+function updateTake(){const u=wanted('u'),p=wanted('p');$('take-summary').textContent=u||p?`К выдаче: ${number(u)} юзернеймов и ${number(p)} номеров`:'Выберите количество для выдачи';$('take').disabled=!ready||busy||!(u||p);updateMixedTake();}
+function updateMixedTake(){
+ const total=Number($('take-mixed-count').value);
+ const summary=$('take-mixed-summary');
+ $('take-mixed').disabled=!ready||busy||!Number.isSafeInteger(total)||total<1;
+ if(!Number.isSafeInteger(total)||total<1){summary.textContent='Три юзернейма, один номер — по кругу.';return;}
+ const {users,phones}=mixedCounts(total),available=counts();
+ summary.textContent=`К выдаче: ${number(users)} юзернеймов и ${number(phones)} номеров`;
+ if(available.u<users || available.p<phones){
+  summary.textContent+=` · на складе ${number(available.u)} юзернеймов и ${number(available.p)} номеров`;
+  $('take-mixed').disabled=true;
+ }
+}
 function intakeHint(){const text=$('intake-text').value,lines=text.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);const r=lines.length ? add({stock:[...data.stock]},text,'',false,$('dedupe').checked) : null;$('intake-hint').textContent=lines.length?`Строк: ${number(lines.length)} · новых: ${number(r.added)} · дублей: ${number(r.duplicates)}`:'Один юзернейм или номер в каждой строке.';}
 function element(tag,cls,text){const el=document.createElement(tag);if(cls)el.className=cls;if(text!=null)el.textContent=text;return el;}
 function button(text,fn,cls=''){const b=element('button',cls,text);b.type='button';b.disabled=!ready||busy;b.onclick=fn;return b;}
@@ -59,7 +71,7 @@ function confirmAction(title,text,label='Продолжить'){
 }
 function download(name,text,type='text/plain'){const url=URL.createObjectURL(new Blob([text],{type:type+';charset=utf-8'})),a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
 async function copy(text){if(!text){toast('Список пуст.');return;}try{await navigator.clipboard.writeText(text);toast('Скопировано.');}catch{const field=$('output-dialog').open?$('output-text'):$('sort-output');field.focus();field.select();toast('Текст выделен. Нажмите «Копировать» в меню выделения.');}}
-function showIssue(t){currentIssue=t;$('output-title').textContent=`Контакты · ${number(t.users.length+t.phones.length)}`;$('output-description').textContent=`${date(t.takenAt)} · юзернеймов: ${t.users.length} · номеров: ${t.phones.length}`;$('output-text').value=[t.users.join('\n'),t.phones.join('\n')].filter(Boolean).join('\n\n');$('output-dialog').showModal();}
+function showIssue(t){currentIssue=t;$('output-title').textContent=`Контакты · ${number(t.users.length+t.phones.length)}`;$('output-description').textContent=`${date(t.takenAt)} · юзернеймов: ${t.users.length} · номеров: ${t.phones.length}`;$('output-text').value=issueText(t);$('output-dialog').showModal();}
 function runSort(){sortResult=sort($('sort-input').value,{dedup:$('sort-dedup').checked,norm:$('sort-norm').checked,drop:$('sort-drop').checked,sep:$('sort-sep').value});$('sort-output').value=sortResult.result;$('sort-stats').textContent=`Найдено номеров: ${sortResult.phones.length} · повторов: ${sortResult.duplicates}`;$('sort-to-stock').disabled=!sortResult.phones.length;try{sessionStorage.setItem('applicants-sort',JSON.stringify({text:$('sort-input').value,dedup:$('sort-dedup').checked,norm:$('sort-norm').checked,drop:$('sort-drop').checked,sep:$('sort-sep').value}));}catch{}}
 async function readFile(file){if(file.size>5*1024*1024)throw Error('Выберите файл до 5 МБ.');const bytes=await file.arrayBuffer();try{return new TextDecoder('utf-8',{fatal:true}).decode(bytes)}catch{return new TextDecoder('windows-1251').decode(bytes)}}
 function bindFile(id,fn){$(id).onchange=async e=>{const file=e.target.files[0];if(!file)return;try{await fn(await readFile(file),file.name)}catch(error){notice(error.message,true)}finally{e.target.value=''}};}
@@ -67,9 +79,9 @@ $('refresh').onclick=reload;
 document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>switchView(b.dataset.view));
 document.querySelectorAll('[data-count]').forEach(b=>b.onclick=()=>{$('take-'+b.dataset.kind).value=b.dataset.count==='all'?'все':b.dataset.count;updateTake();});
 for(const k of ['u','p']){$('take-'+k).oninput=updateTake;$('take-'+k).onfocus=e=>e.target.select();}
-function issueContacts(users, phones, batchId = null) {
+function issueContacts(users, phones, batchId = null, mixedTotal = null) {
  return mutate(
-  draft => take(draft, users, phones, batchId),
+  draft => mixedTotal === null ? take(draft, users, phones, batchId) : takeMixed(draft, mixedTotal),
   issue => {
    $('take-u').value = '0';
    $('take-p').value = '0';
@@ -77,11 +89,16 @@ function issueContacts(users, phones, batchId = null) {
    toast('Выдача сохранена в истории.');
   },
   (draft, issue) => store.saveIssue
-   ? store.saveIssue(draft, {users, phones, batchId, id: issue.id, takenAt: issue.takenAt})
+   ? store.saveIssue(draft, {users: issue.users.length, phones: issue.phones.length, batchId, id: issue.id, takenAt: issue.takenAt, order: issue.order})
    : store.save(draft),
  );
 }
 $('take').onclick=()=>issueContacts(wanted('u'),wanted('p'));
+$('take-mixed-count').oninput=updateMixedTake;
+$('take-mixed-form').onsubmit=e=>{
+ e.preventDefault();
+ issueContacts(0,0,null,Number($('take-mixed-count').value));
+};
 $('intake-text').oninput=intakeHint;$('dedupe').onchange=intakeHint;
 $('intake').onsubmit=async e=>{
  e.preventDefault();

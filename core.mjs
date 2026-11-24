@@ -28,6 +28,30 @@ export function restore(data,issueId) {
  for(const [kind,key] of [['u','users'],['p','phones']])if(t[key].length)data.stock.push({id:id(),kind,name:'Возврат выдачи',createdAt:Date.now(),total:t[key].length,items:[...t[key]]});
  data.issued=data.issued.filter(t=>t.id!==issueId);
 }
+export function mixedCounts(total) {
+ if(!Number.isSafeInteger(total) || total < 1)throw Error('Введите целое количество откликов больше нуля.');
+ const phones=Math.floor(total/4);
+ return {users:total-phones,phones};
+}
+export function takeMixed(data,total) {
+ const {users,phones}=mixedCounts(total);
+ const available={u:0,p:0};
+ for(const batch of data.stock)for(const item of batch.items)available[kindOf(item)]++;
+ if(available.u<users || available.p<phones){
+  throw Error(`Для ${total} откликов нужно ${users} юзернеймов и ${phones} номеров. На складе: ${available.u} юзернеймов и ${available.p} номеров.`);
+ }
+ return take(data,users,phones,null,{id:id(),takenAt:Date.now(),order:'3u1p'});
+}
+export function issueText(issue) {
+ if(issue.order!=='3u1p')return [issue.users.join('\n'),issue.phones.join('\n')].filter(Boolean).join('\n\n');
+ const lines=[];
+ for(let i=0;i<issue.users.length;i+=3){
+  lines.push(...issue.users.slice(i,i+3));
+  const phone=issue.phones[i/3];
+  if(phone!==undefined)lines.push(phone);
+ }
+ return lines.join('\n');
+}
 const PHONE_RE = /(?<![\d\w])\+?\d[\d\s\-(). ]{8,22}\d(?!\d)/g;
 
 function digitsOf(s){return s.replace(/\D/g,'')}

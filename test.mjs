@@ -1,8 +1,40 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {CloudStore,LocalStore,validate,EMPTY} from './storage.mjs';
-import {add,take,restore,sort} from './core.mjs';
+import {add,take,takeMixed,mixedCounts,issueText,restore,sort} from './core.mjs';
 function fakeCloud(){const map=new Map();let fail=false;return {map,set fail(v){fail=v},getItem(k,cb){cb(null,map.get(k)||'')},getItems(ks,cb){cb(null,Object.fromEntries(ks.map(k=>[k,map.get(k)||''])))},getKeys(cb){cb(null,[...map.keys()])},setItem(k,v,cb){if(fail&&k!=='applicants_v1')return cb('offline');map.set(k,v);cb(null,true)},removeItems(ks,cb){ks.forEach(k=>map.delete(k));cb(null,true)}}}
+test('mixed issuance uses 3 users then 1 phone and survives cloud history and restore',async()=>{
+ const api=fakeCloud(),store=new CloudStore(api),data=await store.load();
+ const users=Array.from({length:305},(_,i)=>'@candidate_'+i);
+ const phones=Array.from({length:102},(_,i)=>String(79000000000+i));
+ add(data,[...users,...phones].join('\n'),'Mixed source',true);
+ await store.save(data);
+ const issue=takeMixed(data,400),lines=issueText(issue).split('\n');
+ assert.equal(issue.users.length,300);
+ assert.equal(issue.phones.length,100);
+ assert.equal(lines.length,400);
+ for(let i=0;i<100;i++)assert.deepEqual(lines.slice(i*4,i*4+4),[...users.slice(i*3,i*3+3),phones[i]]);
+ assert.deepEqual(data.stock.flatMap(b=>b.items),[...users.slice(300),...phones.slice(100)]);
+ await store.saveIssue(data,{users:300,phones:100,batchId:null,id:issue.id,takenAt:issue.takenAt,order:issue.order});
+ const reopened=await new CloudStore(api).load();
+ assert.deepEqual(reopened,data);
+ assert.equal(issueText(reopened.issued[0]),issueText(issue));
+ await store.save(data);
+ assert.equal(issueText((await new CloudStore(api).load()).issued[0]),issueText(issue));
+ restore(data,issue.id);
+ assert.equal(data.stock.flatMap(b=>b.items).length,407);
+});
+test('mixed counts accept remainders and shortages never consume stock',()=>{
+ const data=EMPTY();add(data,'@a\n@b\n@c\n79000000000');
+ for(const total of [1,2,3,4,5,6,7,8])assert.deepEqual(mixedCounts(total),{users:total-Math.floor(total/4),phones:Math.floor(total/4)});
+ for(const total of [0,-1,1.5,NaN,Infinity])assert.throws(()=>takeMixed(data,total),/целое/);
+ const before=structuredClone(data);
+ assert.throws(()=>takeMixed(data,8),/На складе/);
+ assert.deepEqual(data,before);
+ const issue=takeMixed(data,2);
+ assert.equal(issueText(issue),'@a\n@b');
+ assert.equal(issueText({users:['@old'],phones:['79000000000']}),'@old\n\n79000000000');
+});
 test('FIFO, phone classification, dedupe against stock, return once',()=>{const d=EMPTY();assert.deepEqual(add(d,'@Alice\nalice\n8 (916) 123-45-67\n79161234567'),{added:2,duplicates:2});add(d,'@Bob');const t=take(d,1,1);assert.deepEqual(t.users,['@Alice']);assert.equal(add(d,'bob').added,0);restore(d,t.id);assert.throws(()=>restore(d,t.id));assert.equal(d.stock.flatMap(b=>b.items).length,3);});
 test('sort phones without losing names, normalizes and removes repeats',()=>{assert.deepEqual(sort('Иван, +7 (916) 123-45-67, менеджер\n8 (916) 123-45-67\n@alice'),{result:'Иван, менеджер\n@alice\n\n79161234567',phones:['79161234567'],duplicates:1});});
 test('legacy JSON migrates, invalid payload rejected',()=>{assert.equal(validate({stock:[],issued:[{id:'a',items:['@alice','79161234567']}]}).issued[0].phones.length,1);assert.throws(()=>validate({stock:[{items:'oops'}],issued:[]}));});

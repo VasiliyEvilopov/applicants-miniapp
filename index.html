@@ -9,7 +9,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
 <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
-<script type="module" src="app.mjs?v=7"></script>
+<script type="module" src="app.mjs?v=8"></script>
 </head>
 <body>
 <div class="shell">
@@ -23,6 +23,15 @@
 <p class="intro">Добавляйте контакты партиями. Забирайте нужное количество — выдачи сохранятся в истории.</p>
 <div class="counters"><article class="counter blue"><div class="counter-label"><span class="counter-icon">@</span> Юзернеймы</div><strong id="count-u">0</strong><div class="amount"><label class="sr-only" for="take-u">Выдать юзернеймов</label><input id="take-u" type="text" inputmode="numeric" value="0"><button data-kind="u" data-count="20">20</button><button data-kind="u" data-count="50">50</button><button data-kind="u" data-count="all">Все</button></div></article><article class="counter teal"><div class="counter-label"><span class="counter-icon">#</span> Номера</div><strong id="count-p">0</strong><div class="amount"><label class="sr-only" for="take-p">Выдать номеров</label><input id="take-p" type="text" inputmode="numeric" value="0"><button data-kind="p" data-count="20">20</button><button data-kind="p" data-count="50">50</button><button data-kind="p" data-count="all">Все</button></div></article></div>
 <div class="issue-bar"><span id="take-summary">Выберите количество для выдачи</span><button class="primary" id="take">Забрать контакты <span>↗</span></button></div>
+<form id="take-mixed-form" class="card" style="margin-bottom:24px">
+ <label for="take-mixed-count">Общее количество откликов</label>
+ <div class="form-bottom" style="margin-top:10px">
+  <input id="take-mixed-count" type="number" min="1" step="1" inputmode="numeric" placeholder="Например, 400" required>
+  <button class="primary" id="take-mixed" type="submit">Выдать смешанно</button>
+ </div>
+ <p class="hint" style="margin-top:10px">Порядок — 3 юзернейма, 1 номер. Для 400 откликов — 300 юзернеймов и 100 номеров.</p>
+ <p id="take-mixed-summary" class="hint" role="status" style="margin-top:6px"></p>
+</form>
 <section class="card intake"><div class="card-title"><h2>Новая партия</h2><label class="file-button">↥ Загрузить .txt<input id="intake-file" type="file" accept=".txt,.csv,text/plain,text/csv"></label></div><form id="intake"><label class="sr-only" for="intake-text">Список контактов</label><textarea id="intake-text" placeholder="@username&#10;+7 999 123-45-67&#10;another_user" spellcheck="false"></textarea><div class="form-options"><label><input type="checkbox" id="dedupe" checked> Пропускать дубли</label><label><input type="checkbox" id="mixed"> Общая партия</label></div><div class="form-bottom"><input id="batch-name" maxlength="60" aria-label="Название партии" placeholder="Название партии — необязательно"><button class="primary" type="submit">Добавить на склад <span>+</span></button></div><p class="hint" id="intake-hint">Один юзернейм или номер в каждой строке.</p><p id="intake-feedback" class="notice" role="status" hidden></p></form></section>
 <div class="section-head compact"><h2>Партии на складе</h2><span id="today" class="hint"></span></div><div id="batches" class="records"></div>
 </section>

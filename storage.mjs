@@ -1,4 +1,4 @@
-import {take} from './core.mjs?v=4';
+import {take} from './core.mjs?v=8';
 
 /* Personal storage: GitHub serves code; contact data stays in the browser or Telegram. */
 export const EMPTY = () => ({stock: [], issued: []});
@@ -142,11 +142,11 @@ export class CloudStore {
       return JSON.parse(await decodeSnapshot(payload, snapshot.encoding ?? 'json'));
     };
     const data = validate(await read(manifest));
-    for (const {batches, users, phones, batchId, id, takenAt} of operations) {
+    for (const {batches, users, phones, batchId, id, takenAt, order} of operations) {
       if (batches) {
         data.stock.push(...validate({stock: await read(batches), issued: []}).stock);
       } else {
-        take(data, users, phones, batchId, {id, takenAt});
+        take(data, users, phones, batchId, {id, takenAt, ...(order ? {order} : {})});
       }
     }
     this.revision = raw;
