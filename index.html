@@ -4,19 +4,19 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
 <meta name="theme-color" content="#f4f6fa">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://telegram.org https://api.vk.com/method/users.search; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.userapi.com https://*.vkuserphoto.ru; connect-src 'self' https://applicants-miniapp-production.up.railway.app https://id.vk.ru https://login.vk.ru https://api.vk.ru; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/ https://telegram.org https://api.vk.com/method/users.search https://api.vk.com/method/users.get; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.userapi.com https://*.vkuserphoto.ru; connect-src 'self' https://applicants-miniapp-production.up.railway.app https://id.vk.ru https://login.vk.ru https://api.vk.ru https://*.userapi.com https://*.vkuserphoto.ru https://cdn.jsdelivr.net https://huggingface.co https://*.huggingface.co https://*.hf.co; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>ApplicantsTools — склад откликов</title>
 <meta name="description" content="Склад юзернеймов и телефонов: партии, выдачи, история и сортировка. Mini App для Telegram.">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="style.css?v=12">
+<link rel="stylesheet" href="style.css?v=16">
 <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
-<script type="module" src="app.mjs?v=13"></script>
+<script type="module" src="app.mjs?v=16"></script>
 </head>
 <body>
 <div class="shell">
 <header class="top"><a class="brand" href="./" aria-label="ApplicantsTools — главная"><span class="brand-icon">a<span>·</span></span><span>Applicants<span class="brand-light">Tools</span></span></a><span class="edition">MINI APP</span></header>
 <div class="status-row"><span id="storage-status" class="status"><i></i> Подключение…</span><button id="refresh" class="text-button" aria-label="Обновить склад">↻ Обновить</button></div>
-<nav class="nav" aria-label="Разделы"><button data-view="stock" aria-current="page">Склад</button><button data-view="sort">Сортировка</button><button data-view="history">История <span id="history-count">0</span></button><button data-view="cloner">Клонер</button><button data-view="avatars">Аватарки ВК</button></nav>
+<nav class="nav" aria-label="Разделы"><button data-view="stock" aria-current="page">Склад</button><button data-view="sort">Сортировка</button><button data-view="history">История <span id="history-count">0</span></button><button data-view="cloner">Клонер</button><button data-view="avatars">Мои фото</button></nav>
 <div id="notice" class="notice" role="status" hidden></div>
 <main>
 <section id="view-stock" class="view">
@@ -39,29 +39,30 @@
 <section id="view-sort" class="view" hidden><p class="eyebrow">ПОРЯДОК В СПИСКАХ</p><h1>Номера в конец</h1><p class="intro">Вставьте отклики: телефоны соберутся отдельным списком, остальной текст останется на месте.</p><section class="card sort-options"><label><input id="sort-dedup" type="checkbox" checked> Убирать повторы номеров</label><label><input id="sort-norm" type="checkbox" checked> Приводить к 7XXXXXXXXXX</label><label><input id="sort-drop" type="checkbox" checked> Удалять строки, где был только номер</label><label>Разделитель <select id="sort-sep"><option value="blank">Пустая строка</option><option value="title">Номера:</option><option value="none">Без разделителя</option></select></label></section><div class="sort-grid"><section class="sort-col"><div class="card-title"><h2>Исходный текст</h2><label class="file-button">↥ Загрузить<input id="sort-file" type="file" accept=".txt,.csv,text/plain,text/csv"></label></div><textarea id="sort-input" aria-label="Исходный текст для сортировки" placeholder="Имя, телефон, комментарий…" spellcheck="false"></textarea><button id="sort-clear" class="text-button">Очистить</button></section><section class="sort-col"><div class="card-title"><h2>Результат</h2><button id="sort-copy" class="text-button">Копировать ↗</button></div><textarea id="sort-output" aria-label="Результат сортировки" readonly></textarea><div class="actions"><button id="sort-to-stock">Номера на склад →</button><button id="sort-download">Скачать .txt</button></div></section></div><p id="sort-stats" class="hint"></p><p class="footnote">Сортировка выполняется на вашем устройстве. Кнопка «Номера на склад» переносит в форму только найденные телефоны.</p></section>
 <section id="view-history" class="view" hidden><p class="eyebrow">НИЧЕГО НЕ ТЕРЯЕТСЯ</p><h1>История выдач</h1><p class="intro">Выданные списки можно открыть, скопировать снова или вернуть на склад.</p><div id="issues" class="records"></div></section>
 <section id="view-avatars" class="view" hidden>
- <h1>Аватарки ВК</h1>
- <p class="intro">Открытые профили девушек от 18 лет. Выбирайте подходящие фотографии в результатах.</p>
- <section class="card vk-avatar-connect">
-  <button id="vk-avatars-login" class="primary" type="button">Войти через VK</button>
-  <p id="vk-avatars-auth-status" class="hint" role="status">Введите ключ один раз или войдите через VK. Ключ сохранится на этом устройстве.</p>
+ <h1>Мои фото</h1>
+ <p class="intro">Загрузите свои фотографии, выберите нужные и сохраните одним ZIP. Обработка выполняется на устройстве.</p>
+ <section class="card">
+  <label class="file-button button">Добавить фотографии<input id="photos-files" type="file" accept="image/jpeg,image/png,image/webp" multiple></label>
+  <p class="hint">JPEG, PNG и WebP. Фотографии остаются только в текущей вкладке.</p>
+  <div class="actions" style="margin-top:14px">
+   <label for="photos-count">Количество для выбора</label><input id="photos-count" type="number" min="1" step="1" value="20" style="width:90px">
+   <button id="photos-pick" type="button">Выбрать автоматически</button>
+   <button id="photos-clear" type="button">Снять выделение</button>
+  </div>
+  <p class="hint">Автовыбор отмечает указанное количество фото по порядку загрузки.</p>
  </section>
- <form id="vk-avatars-form" class="card">
-  <label for="vk-avatars-token">Пользовательский ключ VK API</label>
-  <input id="vk-avatars-token" type="password" autocomplete="off" spellcheck="false" placeholder="Введите ключ один раз">
+ <div class="vk-avatar-toolbar">
+  <span id="photos-selected-count">Выбрано: 0</span>
   <div class="actions">
-   <button id="vk-avatars-save-token" type="button">Сохранить ключ</button>
-   <button id="vk-avatars-change-token" type="button" hidden>Изменить ключ</button>
+   <label for="photos-copies">Копий каждого фото</label><input id="photos-copies" type="number" min="1" max="65535" step="1" value="1" style="width:75px">
+   <label for="photos-size">Размер</label><select id="photos-size"><option value="0">Исходный</option><option value="1024">До 1024 px</option><option value="512">До 512 px</option><option value="256">До 256 px</option></select>
+   <button id="photos-build" class="primary" type="button" disabled>Собрать ZIP</button>
+   <a id="photos-download" class="button primary" hidden>Скачать ZIP</a>
   </div>
-  <div class="vk-avatar-filters">
-   <div><label for="vk-avatars-query">Имя — необязательно</label><input id="vk-avatars-query" type="text" maxlength="100" placeholder="Например, Анна"></div>
-   <div><label for="vk-avatars-age-from">Возраст от</label><input id="vk-avatars-age-from" type="number" min="18" max="100" value="18" required></div>
-   <div><label for="vk-avatars-age-to">Возраст до</label><input id="vk-avatars-age-to" type="number" min="18" max="100" value="35" required></div>
-  </div>
-  <button id="vk-avatars-search" class="primary" type="submit">Найти аватарки</button>
- </form>
- <p id="vk-avatars-status" class="hint" role="status"></p>
- <div id="vk-avatars-results" class="vk-avatar-grid"></div>
- <button id="vk-avatars-more" type="button" hidden>Показать ещё</button>
+ </div>
+ <p id="photos-summary" class="hint"></p>
+ <p id="photos-status" class="hint" role="status"></p>
+ <div id="photos-results" class="vk-avatar-grid"></div>
 </section>
 <section id="view-cloner" class="view" hidden>
 <p class="eyebrow">ДОПОЛНИТЕЛЬНАЯ АВТОРИЗАЦИЯ</p>
