@@ -155,6 +155,9 @@ export function computeImageQualityScore({width, height, data} = {}) {
 
 export function qualityMatchesFilters(user, {minQuality = 0, includeUnknownQuality = true} = {}) {
   const threshold = Number.isFinite(minQuality) ? clamp(minQuality, 0, 10) : 0;
+  // A zero threshold means that the quality filter is disabled. Do not hide
+  // images while their asynchronous score is still being calculated.
+  if (threshold <= 0) return true;
   const score = Number(user.image_quality_score ?? user.quality_score);
   if (!Number.isFinite(score)) return includeUnknownQuality;
   return score >= threshold;
@@ -333,10 +336,6 @@ export function setupVkAvatars() {
   const verificationFilter = get('vk-avatars-verification');
   const maxFollowersFilter = get('vk-avatars-max-followers');
   const includeMissingFollowers = get('vk-avatars-include-missing');
-  const qualityThreshold = get('vk-avatars-quality-threshold');
-  const qualityValue = get('vk-avatars-quality-value');
-  const qualitySort = get('vk-avatars-quality-sort');
-  const includeUnknownQuality = get('vk-avatars-include-unknown-quality');
   const filterCount = get('vk-avatars-filter-count');
   const resetFilters = get('vk-avatars-filters-reset');
   const exportStatus = get('vk-avatars-export-status');
@@ -352,19 +351,17 @@ export function setupVkAvatars() {
   let exportBusy = false;
   let autoPicking = false;
   if (!['all', 'verified', 'unverified'].includes(verificationFilter.value)) verificationFilter.value = 'all';
-  if (!maxFollowersFilter.value) maxFollowersFilter.value = '500';
-  if (!qualityThreshold.value) qualityThreshold.value = '0';
-  qualityValue.textContent = Number(qualityThreshold.value).toFixed(1);
 
   function readProfileFilters() {
-    const parsedMax = Number(maxFollowersFilter.value);
-    const parsedQuality = Number(qualityThreshold.value);
+    const rawMax = String(maxFollowersFilter.value ?? '').trim();
+    const parsedMax = Number(rawMax);
     return {
       verification: ['all', 'verified', 'unverified'].includes(verificationFilter.value) ? verificationFilter.value : 'all',
-      maxFollowers: Number.isSafeInteger(parsedMax) && parsedMax >= 0 ? parsedMax : 500,
+      // An empty field explicitly disables the follower limit. Keep 500 as
+      // the default, but let users turn this filter off without a hidden
+      // checkbox.
+      maxFollowers: rawMax === '' ? null : (Number.isSafeInteger(parsedMax) && parsedMax >= 0 ? parsedMax : 500),
       includeMissingFollowers: includeMissingFollowers.checked !== false,
-      minQuality: Number.isFinite(parsedQuality) ? Math.min(10, Math.max(0, parsedQuality)) : 0,
-      includeUnknownQuality: includeUnknownQuality.checked !== false,
     };
   }
 
@@ -376,16 +373,6 @@ export function setupVkAvatars() {
 
   function renderFilteredResults() {
     const matching = profiles.filter(matchesProfile);
-    if (qualitySort.value === 'desc') {
-      matching.sort((a, b) => {
-        const aScore = Number(a.quality_score);
-        const bScore = Number(b.quality_score);
-        if (!Number.isFinite(aScore) && !Number.isFinite(bScore)) return 0;
-        if (!Number.isFinite(aScore)) return 1;
-        if (!Number.isFinite(bScore)) return -1;
-        return bScore - aScore;
-      });
-    }
     const visibleIds = new Set(matching.map(user => user.id));
     for (const id of selected.keys()) {
       if (!visibleIds.has(id)) selected.delete(id);
@@ -400,7 +387,6 @@ export function setupVkAvatars() {
 
   function applyProfileFilters() {
     profileFilters = readProfileFilters();
-    qualityValue.textContent = profileFilters.minQuality.toFixed(1);
     if (!busy) renderFilteredResults();
   }
 
@@ -417,9 +403,6 @@ export function setupVkAvatars() {
     verificationFilter.disabled = exportBusy;
     maxFollowersFilter.disabled = exportBusy;
     includeMissingFollowers.disabled = exportBusy;
-    qualityThreshold.disabled = exportBusy;
-    qualitySort.disabled = exportBusy;
-    includeUnknownQuality.disabled = exportBusy;
     resetFilters.disabled = exportBusy;
   }
 
@@ -523,25 +506,6 @@ export function setupVkAvatars() {
     image.alt = 'Аватарка из открытого профиля ВК';
     image.loading = 'lazy';
     image.referrerPolicy = 'no-referrer';
-    image.onload = () => {
-      // The score is calculated from the downloaded image, never from identity
-      // or facial attributes. A failed read simply leaves the item as unknown.
-      if (user.image_quality_score === undefined && user.quality_score === undefined && !user._quality_pending) {
-        user._quality_pending = true;
-        let scorePromise;
-        try { scorePromise = Promise.resolve(scoreDecodedImage(image)); }
-        catch { scorePromise = measureImageQuality(image.src); }
-        void scorePromise.then(score => {
-          user.image_quality_score = score;
-          user.quality_score = score;
-          if (!busy) renderFilteredResults();
-        }).catch(() => {
-          user.image_quality_score = null;
-          user.quality_score = null;
-          if (!busy) renderFilteredResults();
-        }).finally(() => { user._quality_pending = false; });
-      }
-    };
     const select = document.createElement('span');
     select.className = 'vk-avatar-select';
     const checkbox = document.createElement('input');
@@ -566,14 +530,7 @@ export function setupVkAvatars() {
       link.rel = 'noopener noreferrer';
       actions.append(link);
     }
-    const quality = document.createElement('span');
-    quality.className = 'vk-avatar-quality';
-    const score = Number(user.image_quality_score ?? user.quality_score);
-    quality.textContent = Number.isFinite(score)
-      ? `Качество кадра: ${score.toFixed(1)}/10`
-      : (user.image_quality_score === null || user.quality_score === null)
-        ? 'Качество кадра: недоступно' : 'Качество кадра: проверяем…';
-    card.append(preview, quality, actions);
+    card.append(preview, actions);
     results.append(card);
   }
 
@@ -595,7 +552,7 @@ export function setupVkAvatars() {
       const matching = renderFilteredResults();
       more.hidden = offset >= response.count || response.items.length === 0;
       status.textContent = profiles.length
-        ? `Подходит по фильтрам: ${matching} из ${profiles.length}. Откройте фото, чтобы сохранить его на устройство.`
+        ? `Найдено профилей: ${matching} из ${profiles.length}. Откройте фото, чтобы сохранить его на устройство.`
         : 'Открытых профилей с аватарками на этой странице нет. Попробуйте другие параметры или следующую страницу.';
     } catch (error) {
       status.textContent = error.message;
@@ -756,16 +713,10 @@ export function setupVkAvatars() {
   includeMissingFollowers.onchange = applyProfileFilters;
   resetFilters.onclick = () => {
     verificationFilter.value = 'all';
-    maxFollowersFilter.value = '500';
+    maxFollowersFilter.value = '';
     includeMissingFollowers.checked = true;
-    qualityThreshold.value = '0';
-    qualitySort.value = 'none';
-    includeUnknownQuality.checked = true;
     applyProfileFilters();
   };
-  qualityThreshold.oninput = applyProfileFilters;
-  qualitySort.onchange = applyProfileFilters;
-  includeUnknownQuality.onchange = applyProfileFilters;
   updateSelection();
   return returningFromVk;
 }
