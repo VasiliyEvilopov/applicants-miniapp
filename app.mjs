@@ -1,4 +1,4 @@
-import {setupPhotos} from './photos.mjs?v=16';
+import {setupVkAvatars} from './vk-avatars.mjs?v=13';
 import {CloudStore,LocalStore,EMPTY,validate} from './storage.mjs?v=9';
 import {add,take,takeMixed,mixedCounts,issueText,restore,isPhone,sort} from './core.mjs?v=9';
 const $=id=>document.getElementById(id),tg=window.Telegram?.WebApp;
@@ -151,7 +151,7 @@ if(inTelegram){
  catch(error){notice('Браузер запретил сохранение. Разрешите хранилище для этого сайта.',true);setStatus('Сохранение недоступно',true);render();}
 }
 runSort();
-setupPhotos();
+if(setupVkAvatars())switchView('avatars');
 
 // ── Клонер TData ───────────────────────────────────────────────────────────
 const CLONER_API = 'https://applicants-miniapp-production.up.railway.app';
