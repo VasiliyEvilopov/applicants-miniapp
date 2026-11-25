@@ -1,4 +1,4 @@
-import {setupVkAvatars} from './vk-avatars.mjs?v=16';
+import {setupVkAvatars} from './vk-avatars.mjs?v=18';
 import {CloudStore,LocalStore,EMPTY,validate} from './storage.mjs?v=9';
 import {add,take,takeMixed,mixedCounts,issueText,restore,isPhone,sort} from './core.mjs?v=9';
 const $=id=>document.getElementById(id),tg=window.Telegram?.WebApp;
