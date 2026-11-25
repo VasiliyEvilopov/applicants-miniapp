@@ -153,6 +153,57 @@ export function searchAvatars({token, query, ageFrom, ageTo, offset = 0}) {
   });
 }
 
+function parseVariants(value) {
+  const count = Number(value);
+  if (!Number.isSafeInteger(count) || count < 1 || count > 100) {
+    throw Error('Укажите от 1 до 100 вариантов на изображение.');
+  }
+  return count;
+}
+
+async function decodeImage(blob) {
+  if (typeof createImageBitmap === 'function') return createImageBitmap(blob);
+  const image = new Image();
+  const url = URL.createObjectURL(blob);
+  return new Promise((resolve, reject) => {
+    image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
+    image.onerror = () => { URL.revokeObjectURL(url); reject(Error('Не удалось открыть изображение для аугментации.')); };
+    image.src = url;
+  });
+}
+
+async function augmentImage(image) {
+  const width = image.width || image.naturalWidth;
+  const height = image.height || image.naturalHeight;
+  if (!width || !height) throw Error('У изображения отсутствует размер.');
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) throw Error('Браузер не поддерживает обработку изображений.');
+  const crop = Math.min(2, Math.floor(Math.min(width, height) / 100));
+  const sx = crop ? Math.floor(Math.random() * (crop + 1)) : 0;
+  const sy = crop ? Math.floor(Math.random() * (crop + 1)) : 0;
+  const sw = Math.max(1, width - crop);
+  const sh = Math.max(1, height - crop);
+  const angle = (Math.random() - 0.5) * 0.018;
+  const scale = 1 + (Math.random() - 0.5) * 0.012;
+  const brightness = 98 + Math.random() * 4;
+  const contrast = 98 + Math.random() * 4;
+  context.fillStyle = '#fff';
+  context.fillRect(0, 0, width, height);
+  context.save();
+  context.translate(width / 2, height / 2);
+  context.rotate(angle);
+  context.scale(scale, scale);
+  context.filter = `brightness(${brightness}%) contrast(${contrast}%)`;
+  context.drawImage(image, sx, sy, sw, sh, -width / 2, -height / 2, width, height);
+  context.restore();
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(blob => blob ? resolve(blob) : reject(Error('Не удалось создать вариант изображения.')), 'image/jpeg', 0.92);
+  });
+}
+
 export function setupVkAvatars() {
   const get = id => document.getElementById(id);
   const form = get('vk-avatars-form');
@@ -171,6 +222,8 @@ export function setupVkAvatars() {
   const clearSelection = get('vk-avatars-clear-selection');
   const downloadSelected = get('vk-avatars-download');
   const exportStatus = get('vk-avatars-export-status');
+  const augmentationToggle = get('vk-avatars-augment');
+  const variantsInput = get('vk-avatars-variants');
   let search = null;
   let offset = 0;
   let busy = false;
@@ -188,6 +241,8 @@ export function setupVkAvatars() {
     if (typeof results.querySelectorAll === 'function') {
       results.querySelectorAll('input[type="checkbox"]').forEach(input => { input.disabled = exportBusy; });
     }
+    augmentationToggle.disabled = exportBusy;
+    variantsInput.disabled = exportBusy;
   }
 
   function resetSelection() {
@@ -397,9 +452,21 @@ export function setupVkAvatars() {
 
   downloadSelected.onclick = async () => {
     if (exportBusy || selected.size === 0) return;
+    const augmentationEnabled = augmentationToggle.checked;
+    let variantsPerImage = 1;
+    try {
+      if (augmentationEnabled) variantsPerImage = parseVariants(variantsInput.value);
+    } catch (error) {
+      exportStatus.textContent = error.message;
+      exportStatus.classList.add('error');
+      return;
+    }
     exportBusy = true;
     exportStatus.classList.remove('error');
-    exportStatus.textContent = 'Собираем ZIP: 0 из ' + selected.size + '…';
+    const totalFiles = selected.size * variantsPerImage;
+    exportStatus.textContent = augmentationEnabled
+      ? 'Создаём аугментации: 0 из ' + totalFiles + '…'
+      : 'Собираем ZIP: 0 из ' + totalFiles + '…';
     updateSelection();
     const chunks = [];
     let zipError = null;
@@ -412,11 +479,27 @@ export function setupVkAvatars() {
         const type = (response.headers.get('content-type') || '').split(';')[0].toLowerCase();
         const extension = {'image/jpeg':'jpg','image/png':'png','image/webp':'webp'}[type];
         if (!extension) throw Error('VK вернул неподдерживаемый формат фото профиля ' + user.id + '.');
-        const entry = new ZipPassThrough('vk-avatar-' + user.id + '.' + extension);
-        zip.add(entry);
-        entry.push(new Uint8Array(await response.arrayBuffer()), true);
-        done++;
-        exportStatus.textContent = 'Собираем ZIP: ' + done + ' из ' + selected.size + '…';
+        if (augmentationEnabled) {
+          const image = await decodeImage(await response.blob());
+          try {
+            for (let variant = 1; variant <= variantsPerImage; variant++) {
+              const blob = await augmentImage(image);
+              const entry = new ZipPassThrough(`vk-avatar-${user.id}-aug-${String(variant).padStart(2, '0')}.jpg`);
+              zip.add(entry);
+              entry.push(new Uint8Array(await blob.arrayBuffer()), true);
+              done++;
+              exportStatus.textContent = 'Создаём аугментации: ' + done + ' из ' + totalFiles + '…';
+            }
+          } finally {
+            image.close?.();
+          }
+        } else {
+          const entry = new ZipPassThrough('vk-avatar-' + user.id + '.' + extension);
+          zip.add(entry);
+          entry.push(new Uint8Array(await response.arrayBuffer()), true);
+          done++;
+          exportStatus.textContent = 'Собираем ZIP: ' + done + ' из ' + totalFiles + '…';
+        }
       }
       zip.end();
       if (zipError) throw zipError;
@@ -425,7 +508,9 @@ export function setupVkAvatars() {
       link.download = 'vk-avatars-' + new Date().toISOString().slice(0,10) + '.zip';
       link.click();
       setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-      exportStatus.textContent = 'Готово: ' + selected.size + ' выбранных фото в ZIP.';
+      exportStatus.textContent = augmentationEnabled
+        ? 'Готово: ' + totalFiles + ' аугментированных вариантов в ZIP. Оригиналы не добавлялись.'
+        : 'Готово: ' + selected.size + ' выбранных фото в ZIP.';
     } catch (error) {
       zip.terminate();
       exportStatus.textContent = error.message || 'Не удалось собрать ZIP.';

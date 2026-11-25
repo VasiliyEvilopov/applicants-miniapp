@@ -8,9 +8,9 @@
 <title>ApplicantsTools — склад откликов</title>
 <meta name="description" content="Склад юзернеймов и телефонов: партии, выдачи, история и сортировка. Mini App для Telegram.">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="style.css?v=15">
+<link rel="stylesheet" href="style.css?v=16">
 <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
-<script type="module" src="app.mjs?v=15"></script>
+<script type="module" src="app.mjs?v=16"></script>
 </head>
 <body>
 <div class="shell">
@@ -69,6 +69,15 @@
   </div>
  </div>
  <p id="vk-avatars-export-status" class="hint" role="status"></p>
+ <section class="card vk-avatar-augmentation">
+  <div class="card-title"><h2>Аугментация для датасета</h2><span class="tag">Только выбранные VK-фото</span></div>
+  <label><input id="vk-avatars-augment" type="checkbox"> Включить аугментацию (микроизменения)</label>
+  <div class="actions" style="margin-top:10px">
+   <label for="vk-avatars-variants">Количество вариантов на изображение</label>
+   <input id="vk-avatars-variants" type="number" min="1" max="100" step="1" value="5">
+  </div>
+  <p class="hint">В режиме аугментации ZIP содержит только созданные варианты: небольшой кроп/сдвиг, поворот и коррекция яркости/контраста для обучения модели.</p>
+ </section>
  <p id="vk-avatars-status" class="hint" role="status"></p>
  <div id="vk-avatars-results" class="vk-avatar-grid"></div>
  <button id="vk-avatars-more" type="button" hidden>Показать ещё</button>
