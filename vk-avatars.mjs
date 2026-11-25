@@ -8,46 +8,84 @@ function tokenStorageKey() {
   return 'applicants_vk_token_v1_' + userId;
 }
 
-export async function authorizeVk(sdk = globalThis.VKIDSDK) {
-  if (!sdk) throw Error('Не удалось загрузить модуль входа VK. Обновите страницу и повторите.');
-  sdk.Config.init({
-    app: VK_APP_ID,
-    redirectUrl: VK_REDIRECT_URL,
-    scope: '',
-    mode: sdk.ConfigAuthMode.InNewWindow,
-    responseMode: sdk.ConfigResponseMode.Callback,
-    prompt: [sdk.Prompt.SelectAccount],
-  });
-  const authorization = await sdk.Auth.login();
-  if (!authorization?.code || !authorization?.device_id) {
-    throw Error('VK завершил вход без кода авторизации. Повторите вход.');
-  }
-  let timer;
+const VK_LOGIN_KEY = 'applicants_vk_login_v1';
+const VK_LOGIN_TTL = 10 * 60 * 1000;
+
+function base64Url(bytes) {
+  return btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+}
+
+export async function startVkLogin() {
+  const verifier = base64Url(crypto.getRandomValues(new Uint8Array(64)));
+  const state = base64Url(crypto.getRandomValues(new Uint8Array(32)));
+  const challenge = base64Url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
   try {
-    const result = await Promise.race([
-      sdk.Auth.exchangeCode(authorization.code, authorization.device_id),
-      new Promise((resolve, reject) => {
-        timer = setTimeout(() => reject(Error('VK не ответил при получении ключа. Повторите вход.')), 20000);
-      }),
-    ]);
-    if (typeof result?.access_token !== 'string' || !result.access_token) {
-      throw Error('VK завершил вход без пользовательского ключа. Проверьте доступы приложения в кабинете VK ID.');
-    }
-    return result.access_token;
-  } finally {
-    clearTimeout(timer);
+    sessionStorage.setItem(VK_LOGIN_KEY, JSON.stringify({verifier, state, createdAt: Date.now()}));
+  } catch {
+    throw Error('Для входа VK разрешите сохранение данных сайта в браузере.');
   }
+  const params = new URLSearchParams({
+    client_id: String(VK_APP_ID), redirect_uri: VK_REDIRECT_URL,
+    response_type: 'code', code_challenge: challenge, code_challenge_method: 's256',
+    state, scope: '', prompt: 'select_account',
+  });
+  window.location.assign('https://id.vk.ru/authorize?' + params);
+}
+
+export function hasVkLoginResponse() {
+  const params = new URLSearchParams(window.location?.search ?? '');
+  return params.has('code') || params.has('error');
+}
+
+export async function finishVkLogin() {
+  const url = new URL(window.location.href);
+  const params = url.searchParams;
+  const code = params.get('code');
+  const device = params.get('device_id');
+  const state = params.get('state');
+  const denied = params.has('error');
+  for (const key of ['code', 'device_id', 'state', 'expires_in', 'ext_id', 'type', 'error', 'error_description']) {
+    url.searchParams.delete(key);
+  }
+  window.history.replaceState(null, '', url.href);
+  let pending;
+  try {
+    pending = JSON.parse(sessionStorage.getItem(VK_LOGIN_KEY) ?? 'null');
+  } catch {
+    throw Error('Не удалось прочитать данные входа. Нажмите «Войти через VK» ещё раз.');
+  }
+  if (!pending || !state || state !== pending.state || typeof pending.verifier !== 'string' ||
+      !Number.isFinite(pending.createdAt) || Date.now() - pending.createdAt > VK_LOGIN_TTL || Date.now() < pending.createdAt) {
+    throw Error('Сеанс входа VK истёк или открыт в другой вкладке. Нажмите «Войти через VK» ещё раз.');
+  }
+  sessionStorage.removeItem(VK_LOGIN_KEY);
+  if (denied) throw Error('Вход VK отменён или отклонён. Можно повторить вход.');
+  if (!code || !device) throw Error('VK вернул неполные данные входа. Повторите авторизацию.');
+  const query = new URLSearchParams({
+    grant_type: 'authorization_code', client_id: String(VK_APP_ID),
+    redirect_uri: VK_REDIRECT_URL, code_verifier: pending.verifier,
+    state: pending.state, device_id: device,
+  });
+  let response;
+  try {
+    response = await fetch('https://id.vk.ru/oauth2/auth?' + query, {
+      method: 'POST', body: new URLSearchParams({code}),
+      credentials: 'omit', referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(20000),
+    });
+  } catch {
+    throw Error('Не удалось получить ключ от VK. Проверьте соединение и повторите вход.');
+  }
+  const result = await response.json().catch(() => { throw Error('VK вернул некорректный ответ при входе. Повторите авторизацию.'); });
+  if (!response.ok || result.error) throw Error('VK отклонил получение ключа. Проверьте настройки приложения и повторите вход.');
+  if (result.state !== pending.state) throw Error('Проверка ответа VK не прошла. Повторите вход.');
+  if (typeof result.access_token !== 'string' || !result.access_token) {
+    throw Error('VK завершил вход без пользовательского ключа. Проверьте доступы приложения в кабинете VK ID.');
+  }
+  return result.access_token;
 }
 
 function authErrorMessage(error) {
-  const messages = {
-    101: 'Браузер не открыл окно VK. Разрешите всплывающие окна для этого сайта и повторите вход.',
-    102: 'Окно VK закрыто. Нажмите «Войти через VK», чтобы повторить вход.',
-    103: 'VK отклонил авторизацию. Проверьте настройки приложения в кабинете VK ID.',
-    104: 'Проверка авторизации VK не прошла. Повторите вход.',
-  };
-  if (error instanceof Error) return error.message;
-  return messages[error?.code] ?? 'Не удалось войти через VK. Проверьте настройки приложения и повторите.';
+  return error instanceof Error ? error.message : 'Не удалось войти через VK. Повторите авторизацию.';
 }
 
 export function photoUrl(value) {
@@ -181,26 +219,39 @@ export function setupVkAvatars() {
     token.select();
   };
 
+  function setAuthBusy(value) {
+    login.disabled = value;
+    saveToken.disabled = value;
+    changeToken.disabled = value;
+    token.disabled = value;
+  }
+
   login.onclick = async () => {
-    login.disabled = true;
-    saveToken.disabled = true;
-    changeToken.disabled = true;
-    token.disabled = true;
+    setAuthBusy(true);
     authStatus.classList.remove('error');
-    authStatus.textContent = 'Завершите вход в открывшемся окне VK…';
+    authStatus.textContent = 'Переходим к входу VK…';
     try {
-      token.value = await authorizeVk();
-      if (persistKey()) authStatus.textContent = 'VK подключён. Ключ сохранён на этом устройстве.';
+      await startVkLogin();
     } catch (error) {
       authStatus.textContent = authErrorMessage(error);
       authStatus.classList.add('error');
-    } finally {
-      login.disabled = false;
-      saveToken.disabled = false;
-      changeToken.disabled = false;
-      token.disabled = false;
+      setAuthBusy(false);
     }
   };
+
+  const returningFromVk = hasVkLoginResponse();
+  if (returningFromVk) {
+    setAuthBusy(true);
+    authStatus.classList.remove('error');
+    authStatus.textContent = 'Получаем ключ после входа VK…';
+    finishVkLogin().then(value => {
+      token.value = value;
+      if (persistKey()) authStatus.textContent = 'VK подключён. Ключ сохранён на этом устройстве.';
+    }).catch(error => {
+      authStatus.textContent = authErrorMessage(error);
+      authStatus.classList.add('error');
+    }).finally(() => setAuthBusy(false));
+  }
 
   function renderAvatar(user) {
     const card = document.createElement('article');
@@ -276,4 +327,5 @@ export function setupVkAvatars() {
     loadPage();
   };
   more.onclick = loadPage;
+  return returningFromVk;
 }
