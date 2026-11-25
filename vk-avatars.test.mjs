@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {photoUrl, avatarItems, searchAvatars, setupVkAvatars} from './vk-avatars.mjs';
+import {photoUrl, avatarItems, searchAvatars, setupVkAvatars, authorizeVk} from './vk-avatars.mjs';
 
 function browserFixture(respond) {
   const elements = new Map();
@@ -31,6 +31,54 @@ function browserFixture(respond) {
 }
 
 const user = id => ({id, is_closed: false, has_photo: 1, photo_max_orig: `https://sun9-1.userapi.com/photo${id}.jpg`});
+
+function vkSdkFixture() {
+  const calls = [];
+  return {
+    calls,
+    Config: {init(config) { calls.push(config); }},
+    ConfigAuthMode: {InNewWindow: 'new_window'},
+    ConfigResponseMode: {Callback: 'callback'},
+    Prompt: {SelectAccount: 'select_account'},
+    Auth: {
+      async login() { return {code: 'test-code', device_id: 'test-device'}; },
+      async exchangeCode(code, device) {
+        calls.push([code, device]);
+        return {access_token: 'fixture-token'};
+      },
+    },
+  };
+}
+
+test('VK login binds the provided app ID and exchanges the authorization code for a token', async () => {
+  const sdk = vkSdkFixture();
+  assert.equal(await authorizeVk(sdk), 'fixture-token');
+  assert.equal(sdk.calls[0].app, 54921515);
+  assert.equal(sdk.calls[0].redirectUrl, 'https://vasiliyevilopov.github.io/applicants-miniapp/');
+  assert.equal(sdk.calls[0].responseMode, 'callback');
+  assert.deepEqual(sdk.calls[1], ['test-code', 'test-device']);
+  sdk.Auth.login = async () => ({code: 'missing-device'});
+  await assert.rejects(authorizeVk(sdk), /без кода/);
+  sdk.Auth.login = async () => ({code: 'test-code', device_id: 'test-device'});
+  sdk.Auth.exchangeCode = async () => ({});
+  await assert.rejects(authorizeVk(sdk), /без пользовательского ключа/);
+});
+
+test('VK login fills the search token and restores the button after a cancelled login', async () => {
+  const fixture = browserFixture(() => {});
+  globalThis.VKIDSDK = vkSdkFixture();
+  setupVkAvatars();
+  await fixture.get('vk-avatars-login').onclick();
+  assert.equal(fixture.get('vk-avatars-token').value, 'fixture-token');
+  assert.match(fixture.get('vk-avatars-auth-status').textContent, /подключён/);
+  assert.equal(fixture.get('vk-avatars-login').disabled, false);
+  globalThis.VKIDSDK.Auth.login = async () => { throw {code: 102}; };
+  await fixture.get('vk-avatars-login').onclick();
+  assert.match(fixture.get('vk-avatars-auth-status').textContent, /закрыто/);
+  assert.equal(fixture.get('vk-avatars-login').disabled, false);
+  assert.equal(fixture.get('vk-avatars-token').value, 'fixture-token');
+  delete globalThis.VKIDSDK;
+});
 
 test('avatar results allow public profiles and trusted HTTPS photo hosts', () => {
   assert.equal(photoUrl('https://sun9-1.userapi.com/photo.jpg'), 'https://sun9-1.userapi.com/photo.jpg');

@@ -3,13 +3,14 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f4f6fa">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://telegram.org https://api.vk.com/method/users.search; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.userapi.com https://*.vkuserphoto.ru; connect-src 'self' https://applicants-miniapp-production.up.railway.app; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://telegram.org https://api.vk.com/method/users.search; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.userapi.com https://*.vkuserphoto.ru; connect-src 'self' https://applicants-miniapp-production.up.railway.app https://id.vk.ru https://login.vk.ru https://api.vk.ru; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>ApplicantsTools — склад откликов</title>
 <meta name="description" content="Склад юзернеймов и телефонов: партии, выдачи, история и сортировка. Mini App для Telegram.">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="style.css?v=10">
+<link rel="stylesheet" href="style.css?v=11">
 <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
-<script type="module" src="app.mjs?v=10"></script>
+<script defer src="vkid-sdk-2.6.10.js"></script>
+<script type="module" src="app.mjs?v=11"></script>
 </head>
 <body>
 <div class="shell">
@@ -40,10 +41,16 @@
 <section id="view-avatars" class="view" hidden>
  <h1>Аватарки ВК</h1>
  <p class="intro">Открытые профили девушек от 18 лет. Выбирайте подходящие фотографии в результатах.</p>
+ <section class="card vk-avatar-connect">
+  <button id="vk-avatars-login" class="primary" type="button">Войти через VK</button>
+  <p id="vk-avatars-auth-status" class="hint" role="status">Войдите, чтобы получить ключ для поиска. Подключение действует до закрытия страницы или истечения ключа.</p>
+ </section>
  <form id="vk-avatars-form" class="card">
-  <label for="vk-avatars-token">Пользовательский ключ VK API</label>
-  <input id="vk-avatars-token" type="password" autocomplete="off" spellcheck="false" required placeholder="Введите ключ для поиска">
-  <p class="hint">Ключ используется для запросов к VK в этой странице. После её закрытия потребуется ввести ключ снова.</p>
+  <details>
+   <summary>Ввести готовый ключ вручную</summary>
+   <label for="vk-avatars-token">Пользовательский ключ VK API</label>
+   <input id="vk-avatars-token" type="password" autocomplete="off" spellcheck="false" placeholder="Подставится после входа через VK">
+  </details>
   <div class="vk-avatar-filters">
    <div><label for="vk-avatars-query">Имя — необязательно</label><input id="vk-avatars-query" type="text" maxlength="100" placeholder="Например, Анна"></div>
    <div><label for="vk-avatars-age-from">Возраст от</label><input id="vk-avatars-age-from" type="number" min="18" max="100" value="18" required></div>

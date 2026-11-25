@@ -16,3 +16,7 @@
 .vk-avatar img{display:block;width:100%;aspect-ratio:1;object-fit:cover;background:var(--bg)}
 .vk-avatar .actions{padding:12px}.vk-avatar a{text-decoration:none;font-size:11px}
 @media(max-width:600px){.vk-avatar-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.vk-avatar-filters{grid-template-columns:1fr 1fr}.vk-avatar-filters>div:first-child{grid-column:1/-1}}
+
+.vk-avatar-connect{display:flex;align-items:center;gap:14px;margin-bottom:14px}.vk-avatar-connect .hint{flex:1}
+#vk-avatars-auth-status.error{color:var(--danger)}#vk-avatars-form summary{cursor:pointer;font-size:12px;color:var(--muted)}#vk-avatars-form details[open] label{margin-top:12px}
+@media(max-width:600px){.vk-avatar-connect{align-items:stretch;flex-direction:column}}

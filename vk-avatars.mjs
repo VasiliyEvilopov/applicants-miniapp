@@ -1,5 +1,49 @@
 const ENDPOINT = 'https://api.vk.com/method/users.search';
 const PAGE_SIZE = 24;
+const VK_APP_ID = 54921515;
+const VK_REDIRECT_URL = 'https://vasiliyevilopov.github.io/applicants-miniapp/';
+
+export async function authorizeVk(sdk = globalThis.VKIDSDK) {
+  if (!sdk) throw Error('Не удалось загрузить модуль входа VK. Обновите страницу и повторите.');
+  sdk.Config.init({
+    app: VK_APP_ID,
+    redirectUrl: VK_REDIRECT_URL,
+    scope: '',
+    mode: sdk.ConfigAuthMode.InNewWindow,
+    responseMode: sdk.ConfigResponseMode.Callback,
+    prompt: [sdk.Prompt.SelectAccount],
+  });
+  const authorization = await sdk.Auth.login();
+  if (!authorization?.code || !authorization?.device_id) {
+    throw Error('VK завершил вход без кода авторизации. Повторите вход.');
+  }
+  let timer;
+  try {
+    const result = await Promise.race([
+      sdk.Auth.exchangeCode(authorization.code, authorization.device_id),
+      new Promise((resolve, reject) => {
+        timer = setTimeout(() => reject(Error('VK не ответил при получении ключа. Повторите вход.')), 20000);
+      }),
+    ]);
+    if (typeof result?.access_token !== 'string' || !result.access_token) {
+      throw Error('VK завершил вход без пользовательского ключа. Проверьте доступы приложения в кабинете VK ID.');
+    }
+    return result.access_token;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function authErrorMessage(error) {
+  const messages = {
+    101: 'Браузер не открыл окно VK. Разрешите всплывающие окна для этого сайта и повторите вход.',
+    102: 'Окно VK закрыто. Нажмите «Войти через VK», чтобы повторить вход.',
+    103: 'VK отклонил авторизацию. Проверьте настройки приложения в кабинете VK ID.',
+    104: 'Проверка авторизации VK не прошла. Повторите вход.',
+  };
+  if (error instanceof Error) return error.message;
+  return messages[error?.code] ?? 'Не удалось войти через VK. Проверьте настройки приложения и повторите.';
+}
 
 export function photoUrl(value) {
   try {
@@ -35,7 +79,7 @@ export function searchAvatars({token, query, ageFrom, ageTo, offset = 0}) {
     window[callback] = payload => {
       if (payload?.error) {
         const messages = {
-          5: 'Ключ VK недействителен или истёк. Введите новый пользовательский ключ.',
+          5: 'Ключ VK недействителен или истёк. Нажмите «Войти через VK» для повторного входа.',
           6: 'Слишком много запросов к VK. Подождите немного и повторите поиск.',
           14: 'VK требует проверку безопасности. Выполните её в VK и повторите поиск.',
           15: 'VK запретил поиск. Проверьте, что введён пользовательский ключ с доступом к users.search.',
@@ -71,11 +115,29 @@ export function setupVkAvatars() {
   const status = get('vk-avatars-status');
   const submit = get('vk-avatars-search');
   const more = get('vk-avatars-more');
+  const login = get('vk-avatars-login');
+  const authStatus = get('vk-avatars-auth-status');
   let search = null;
   let offset = 0;
   let busy = false;
   let shown = 0;
   let seen = new Set();
+
+  login.onclick = async () => {
+    login.disabled = true;
+    authStatus.classList.remove('error');
+    authStatus.textContent = 'Завершите вход в открывшемся окне VK…';
+    try {
+      get('vk-avatars-token').value = await authorizeVk();
+      login.textContent = 'Сменить аккаунт VK';
+      authStatus.textContent = 'VK подключён. Можно искать аватарки.';
+    } catch (error) {
+      authStatus.textContent = authErrorMessage(error);
+      authStatus.classList.add('error');
+    } finally {
+      login.disabled = false;
+    }
+  };
 
   function renderAvatar(user) {
     const card = document.createElement('article');
