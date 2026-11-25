@@ -5,3 +5,14 @@
 .brand-icon{display:flex;align-items:baseline;justify-content:center;padding-top:2px;letter-spacing:-2px}.brand-icon span{display:inline;font-size:24px}.nav button{white-space:nowrap}.nav button span{display:inline-block}@media(max-width:600px){.nav button{font-size:12px;padding:9px 5px}.section-head:not(.compact){align-items:flex-start;flex-direction:column;gap:10px}.section-head:not(.compact) h1{font-size:27px}.section-head:not(.compact) .tag{align-self:flex-start}}
 
 #view-cloner input[type=text]{width:100%;margin-top:4px}#view-cloner label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-top:12px}#view-cloner label:first-child{margin-top:0}#cloner-form{display:flex;flex-direction:column}#cloner-submit{align-self:flex-start}@media(max-width:600px){#cloner-submit{align-self:stretch}}.history-row{padding:8px 0}.history-meta{font-size:13px;margin-bottom:4px}.history-phones{font-size:13px;line-height:1.6}.history-phones code{background:var(--chip-bg,#e8ecf0);border-radius:4px;padding:1px 5px;margin-right:4px;font-size:12px}.history-sep{border:none;border-top:1px solid var(--border,#e0e4ea);margin:0}
+
+.nav{flex-wrap:wrap}.nav button{min-width:90px}
+#vk-avatars-token{width:100%;margin:8px 0;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:10px 12px}
+.vk-avatar-filters{display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px;margin:18px 0}
+.vk-avatar-filters input{width:100%;margin-top:6px;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:10px 12px}
+#vk-avatars-status{margin:18px 0}#vk-avatars-status.error{color:var(--danger)}
+.vk-avatar-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:20px}
+.vk-avatar{min-width:0;border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden}
+.vk-avatar img{display:block;width:100%;aspect-ratio:1;object-fit:cover;background:var(--bg)}
+.vk-avatar .actions{padding:12px}.vk-avatar a{text-decoration:none;font-size:11px}
+@media(max-width:600px){.vk-avatar-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.vk-avatar-filters{grid-template-columns:1fr 1fr}.vk-avatar-filters>div:first-child{grid-column:1/-1}}

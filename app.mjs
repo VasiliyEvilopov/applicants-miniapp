@@ -1,3 +1,4 @@
+import {setupVkAvatars} from './vk-avatars.mjs?v=10';
 import {CloudStore,LocalStore,EMPTY,validate} from './storage.mjs?v=9';
 import {add,take,takeMixed,mixedCounts,issueText,restore,isPhone,sort} from './core.mjs?v=9';
 const $=id=>document.getElementById(id),tg=window.Telegram?.WebApp;
@@ -8,7 +9,7 @@ const date=ts=>new Date(ts).toLocaleString('ru-RU',{day:'numeric',month:'short',
 function toast(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').hidden=true,4000);}
 function notice(text,error=false){$('notice').textContent=text;$('notice').classList.toggle('error',error);$('notice').hidden=!text;}
 function setStatus(text,error=false){$('storage-status').replaceChildren();const dot=document.createElement('i');$('storage-status').append(dot,document.createTextNode(text));$('storage-status').classList.toggle('error',error);}
-function switchView(view){for(const name of ['stock','sort','history','cloner'])$('view-'+name).hidden=name!==view;document.querySelectorAll('[data-view]').forEach(b=>{b.removeAttribute('aria-current');if(b.dataset.view===view)b.setAttribute('aria-current','page');});tg?.BackButton?.hide();}
+function switchView(view){for(const name of ['stock','sort','history','cloner','avatars'])$('view-'+name).hidden=name!==view;document.querySelectorAll('[data-view]').forEach(b=>{b.removeAttribute('aria-current');if(b.dataset.view===view)b.setAttribute('aria-current','page');});tg?.BackButton?.hide();}
 function counts(){let u=0,p=0;for(const b of data.stock)for(const x of b.items)isPhone(x)?p++:u++;return {u,p};}
 function wanted(k){const v=$('take-'+k).value.trim().toLowerCase(),max=counts()[k];return ['all','все'].includes(v)?max:Math.min(max,/^\d+$/.test(v)?Number(v):0);}
 function updateTake(){const u=wanted('u'),p=wanted('p');$('take-summary').textContent=u||p?`К выдаче: ${number(u)} юзернеймов и ${number(p)} номеров`:'Выберите количество для выдачи';$('take').disabled=!ready||busy||!(u||p);updateMixedTake();}
@@ -150,6 +151,7 @@ if(inTelegram){
  catch(error){notice('Браузер запретил сохранение. Разрешите хранилище для этого сайта.',true);setStatus('Сохранение недоступно',true);render();}
 }
 runSort();
+setupVkAvatars();
 
 // ── Клонер TData ───────────────────────────────────────────────────────────
 const CLONER_API = 'https://applicants-miniapp-production.up.railway.app';
