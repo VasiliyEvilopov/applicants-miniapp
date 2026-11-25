@@ -178,12 +178,13 @@ export function setupVkAvatars() {
   let seen = new Set();
   let selected = new Map();
   let exportBusy = false;
+  let autoPicking = false;
 
   function updateSelection() {
     selectedCount.textContent = 'Выбрано: ' + selected.size;
     clearSelection.disabled = exportBusy || selected.size === 0;
     downloadSelected.disabled = exportBusy || selected.size === 0;
-    autoPick.disabled = exportBusy || shown === 0;
+    autoPick.disabled = exportBusy || autoPicking || shown === 0;
     if (typeof results.querySelectorAll === 'function') {
       results.querySelectorAll('input[type="checkbox"]').forEach(input => { input.disabled = exportBusy; });
     }
@@ -347,25 +348,44 @@ export function setupVkAvatars() {
     }
   }
 
-  autoPick.onclick = () => {
+  autoPick.onclick = async () => {
+    if (autoPicking || exportBusy) return;
     const count = Number(autoCount.value);
     if (!Number.isSafeInteger(count) || count < 1) {
       exportStatus.textContent = 'Введите целое количество аватарок от 1.';
       exportStatus.classList.add('error');
       return;
     }
+    autoPicking = true;
     exportStatus.classList.remove('error');
-    const cards = [...results.querySelectorAll('.vk-avatar')];
-    let added = 0;
-    for (const card of cards) {
-      if (added >= count) break;
-      const input = card.querySelector('input[type="checkbox"]');
-      if (!input || input.checked) continue;
-      input.click();
-      added++;
-    }
-    exportStatus.textContent = 'Автовыбор отметил ' + added + ' аватарок. Выбор можно изменить вручную.';
+    exportStatus.textContent = 'Подбираем ' + count + ' аватарок…';
+    selected.clear();
+    results.querySelectorAll('input[type="checkbox"]').forEach(input => { input.checked = false; });
     updateSelection();
+    try {
+      const selectVisible = () => {
+        const cards = [...results.querySelectorAll('.vk-avatar')];
+        for (const card of cards) {
+          if (selected.size >= count) break;
+          const input = card.querySelector('input[type="checkbox"]');
+          if (input && !input.checked) input.click();
+        }
+      };
+      selectVisible();
+      while (selected.size < count && !more.hidden) {
+        await loadPage();
+        if (status.classList.contains('error')) break;
+        selectVisible();
+      }
+      if (selected.size < count) {
+        exportStatus.textContent = 'Доступно только ' + selected.size + ' аватарок. Выбор можно изменить вручную.';
+      } else {
+        exportStatus.textContent = 'Автовыбор отметил ' + selected.size + ' аватарок. Выбор можно изменить вручную.';
+      }
+    } finally {
+      autoPicking = false;
+      updateSelection();
+    }
   };
 
   clearSelection.onclick = () => {

@@ -69,25 +69,6 @@
   </div>
  </div>
  <p id="vk-avatars-export-status" class="hint" role="status"></p>
- <section class="card photos-tools">
-  <div class="card-title"><h2>Обработка собственных фото</h2><span class="tag">На устройстве</span></div>
-  <p class="hint photos-disclaimer">Загрузите свои изображения для пакетной обработки. Результат не отправляется в VK и не используется для обхода проверки дублей.</p>
-  <label class="file-button button">Добавить изображения<input id="photos-files" type="file" accept="image/jpeg,image/png,image/webp" multiple></label>
-  <div class="actions photos-actions">
-   <label for="photos-count">Количество для автовыбора</label><input id="photos-count" type="number" min="1" step="1" value="20">
-   <button id="photos-pick" type="button">Подобрать автоматически</button>
-   <button id="photos-clear" type="button">Снять выделение</button>
-  </div>
-  <div class="photos-export actions">
-   <span id="photos-selected-count">Выбрано: 0 из 0</span>
-   <label for="photos-copies">Копий каждого фото</label><input id="photos-copies" type="number" min="1" max="65535" step="1" value="1">
-   <label for="photos-size">Размер</label><select id="photos-size"><option value="0">Исходный</option><option value="1024">До 1024 px</option><option value="512">До 512 px</option><option value="256">До 256 px</option></select>
-   <button id="photos-build" class="primary" type="button" disabled>Создать обработанные варианты</button>
-   <a id="photos-download" class="button primary" hidden>Скачать ZIP</a>
-  </div>
-  <p id="photos-summary" class="hint"></p><p id="photos-status" class="hint" role="status"></p>
-  <div id="photos-results" class="vk-avatar-grid"></div>
- </section>
  <p id="vk-avatars-status" class="hint" role="status"></p>
  <div id="vk-avatars-results" class="vk-avatar-grid"></div>
  <button id="vk-avatars-more" type="button" hidden>Показать ещё</button>
