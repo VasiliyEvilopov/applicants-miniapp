@@ -14,7 +14,7 @@
 .vk-avatar-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:20px}
 .vk-avatar{min-width:0;border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden}
 .vk-avatar img{display:block;width:100%;aspect-ratio:1;object-fit:cover;background:var(--bg)}
-.vk-avatar .actions{padding:12px}.vk-avatar a{text-decoration:none;font-size:11px}
+.vk-avatar .actions{padding:12px}.vk-avatar a{text-decoration:none;font-size:11px}.vk-avatar-followers{margin:9px 12px 0;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
 @media(max-width:600px){.vk-avatar-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.vk-avatar-filters{grid-template-columns:1fr 1fr}.vk-avatar-filters>div:first-child{grid-column:1/-1}}
 
 .vk-avatar-connect{display:flex;align-items:center;gap:14px;margin-bottom:14px}.vk-avatar-connect .hint{flex:1}
