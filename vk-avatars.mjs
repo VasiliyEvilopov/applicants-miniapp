@@ -171,6 +171,30 @@ export function isVerifiedProfile(user = {}) {
   return value === 1 || value === true || value === '1' || value === 'true';
 }
 
+// The VK profile field `followers_count` is the authoritative value for this
+// filter. Do not substitute `counters.followers`: it can be a stale or
+// differently scoped counter and may disagree with the profile page.
+export function getFollowersCount(user = {}) {
+  const candidates = [
+    user.followers_count,
+    user.followersCount,
+    user.subscribers_count,
+    user.subscribers,
+  ];
+  for (const raw of candidates) {
+    if (raw === null || raw === undefined || raw === '') continue;
+    if (typeof raw === 'number' && Number.isFinite(raw) && raw >= 0) {
+      return Number.isSafeInteger(raw) ? raw : Math.floor(raw);
+    }
+    const normalized = String(raw).trim().replace(/[\s,\u00a0]/g, '');
+    if (/^\d+$/.test(normalized)) {
+      const value = Number(normalized);
+      if (Number.isSafeInteger(value)) return value;
+    }
+  }
+  return null;
+}
+
 export function profileMatchesFilters(user, {
   verification = 'all', maxFollowers = 500, includeMissingFollowers = true,
   minQuality = 0, includeUnknownQuality = true,
@@ -179,9 +203,8 @@ export function profileMatchesFilters(user, {
   if (verification === 'verified' && !verified) return false;
   if (verification === 'unverified' && verified) return false;
   if (maxFollowers !== null) {
-    const rawFollowers = user.followers_count;
-    const followers = rawFollowers === '' || rawFollowers === null || rawFollowers === undefined ? null : Number(rawFollowers);
-    if (Number.isFinite(followers)) {
+    const followers = getFollowersCount(user);
+    if (followers !== null) {
       if (followers > maxFollowers) return false;
     } else if (!includeMissingFollowers) {
       return false;
@@ -527,6 +550,12 @@ export function setupVkAvatars() {
     };
     select.append(checkbox, typeof document.createTextNode === 'function' ? document.createTextNode('Выбрать') : 'Выбрать');
     preview.append(image, select);
+    const followers = getFollowersCount(user);
+    const followerLabel = document.createElement('p');
+    followerLabel.className = 'vk-avatar-followers';
+    followerLabel.textContent = followers === null
+      ? 'Подписчики: нет данных VK'
+      : 'Подписчики: ' + followers.toLocaleString('ru-RU');
     const actions = document.createElement('div');
     actions.className = 'actions';
     for (const [label, href] of [['Открыть фото', image.src], ['Профиль ВК', `https://vk.com/id${user.id}`]]) {
@@ -538,7 +567,7 @@ export function setupVkAvatars() {
       link.rel = 'noopener noreferrer';
       actions.append(link);
     }
-    card.append(preview, actions);
+    card.append(preview, followerLabel, actions);
     results.append(card);
   }
 
@@ -674,11 +703,19 @@ export function setupVkAvatars() {
       }
       zip.end();
       if (zipError) throw zipError;
+      // Keep the object URL alive long enough for Telegram's WebView/download
+      // manager to start reading it. A one-second revoke can race the download
+      // and surface as "Load failed" even though the ZIP was built correctly.
+      const archiveUrl = URL.createObjectURL(new Blob(chunks, {type:'application/zip'}));
       const link = document.createElement('a');
-      link.href = URL.createObjectURL(new Blob(chunks, {type:'application/zip'}));
+      link.href = archiveUrl;
       link.download = 'vk-avatars-' + new Date().toISOString().slice(0,10) + '.zip';
+      link.rel = 'noopener';
+      link.style.display = 'none';
+      document.body.append(link);
       link.click();
-      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(archiveUrl), 60000);
       exportStatus.textContent = augmentationEnabled
         ? 'Готово: ' + totalFiles + ' аугментированных вариантов в ZIP. Оригиналы не добавлялись.'
         : 'Готово: ' + selected.size + ' выбранных фото в ZIP.';
