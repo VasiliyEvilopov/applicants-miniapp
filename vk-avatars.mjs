@@ -105,6 +105,80 @@ export function avatarItems(users) {
     user.is_closed === false && !user.deactivated && user.has_photo && photoUrl(user.photo_max_orig));
 }
 
+function clamp(value, min = 0, max = 1) {
+  return Math.min(max, Math.max(min, value));
+}
+
+/**
+ * Returns a technical (not appearance-based) image quality score from 0 to 10.
+ * The input is a small RGBA ImageData sample. It measures sharpness, exposure,
+ * contrast, clipping and usable resolution; it does not identify or rank people.
+ */
+export function computeImageQualityScore({width, height, data} = {}) {
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 3 || height < 3 ||
+      !data || data.length < width * height * 4) return null;
+  const gray = new Float32Array(width * height);
+  let sum = 0;
+  let clipped = 0;
+  for (let i = 0, p = 0; i < gray.length; i++, p += 4) {
+    const value = 0.2126 * data[p] + 0.7152 * data[p + 1] + 0.0722 * data[p + 2];
+    gray[i] = value;
+    sum += value;
+    if (value < 8 || value > 247) clipped++;
+  }
+  const mean = sum / gray.length;
+  let variance = 0;
+  let laplacianSum = 0;
+  let laplacianSquareSum = 0;
+  let laplacianCount = 0;
+  for (const value of gray) variance += (value - mean) ** 2;
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const i = y * width + x;
+      const value = gray[i];
+      const laplacian = gray[i - 1] + gray[i + 1] + gray[i - width] + gray[i + width] - 4 * value;
+      laplacianSum += laplacian;
+      laplacianSquareSum += laplacian ** 2;
+      laplacianCount++;
+    }
+  }
+  const standardDeviation = Math.sqrt(variance / gray.length);
+  const laplacianVariance = Math.max(0, laplacianSquareSum / Math.max(1, laplacianCount) -
+    (laplacianSum / Math.max(1, laplacianCount)) ** 2);
+  const sharpness = clamp(Math.log1p(laplacianVariance) / Math.log1p(1800));
+  const exposure = clamp(1 - Math.abs(mean / 255 - 0.5) * 1.7 - clipped / gray.length * 2.4);
+  const contrast = clamp(standardDeviation / 74);
+  const resolution = clamp(Math.log(Math.min(width, height) / 48) / Math.log(1024 / 48));
+  const score = 10 * (sharpness * 0.45 + exposure * 0.25 + contrast * 0.2 + resolution * 0.1);
+  return Number(clamp(score, 0, 10).toFixed(2));
+}
+
+export function qualityMatchesFilters(user, {minQuality = 0, includeUnknownQuality = true} = {}) {
+  const threshold = Number.isFinite(minQuality) ? clamp(minQuality, 0, 10) : 0;
+  const score = Number(user.image_quality_score ?? user.quality_score);
+  if (!Number.isFinite(score)) return includeUnknownQuality;
+  return score >= threshold;
+}
+
+export function profileMatchesFilters(user, {
+  verification = 'all', maxFollowers = 500, includeMissingFollowers = true,
+  minQuality = 0, includeUnknownQuality = true,
+} = {}) {
+  const verified = user.verified === 1 || user.verified === true;
+  if (verification === 'verified' && !verified) return false;
+  if (verification === 'unverified' && verified) return false;
+  if (maxFollowers !== null) {
+    const rawFollowers = user.followers_count;
+    const followers = rawFollowers === '' || rawFollowers === null || rawFollowers === undefined ? null : Number(rawFollowers);
+    if (Number.isFinite(followers)) {
+      if (followers > maxFollowers) return false;
+    } else if (!includeMissingFollowers) {
+      return false;
+    }
+  }
+  return qualityMatchesFilters(user, {minQuality, includeUnknownQuality});
+}
+
 export function searchAvatars({token, query, ageFrom, ageTo, offset = 0}) {
   if (!token.trim()) return Promise.reject(Error('Введите пользовательский ключ VK API.'));
   if (!Number.isInteger(ageFrom) || !Number.isInteger(ageTo) || ageFrom < 18 || ageTo > 100 || ageTo < ageFrom) {
@@ -144,7 +218,7 @@ export function searchAvatars({token, query, ageFrom, ageTo, offset = 0}) {
       v: '5.199', access_token: token.trim(), callback,
       q: query.trim(), sex: '1', has_photo: '1', sort: '0',
       age_from: String(ageFrom), age_to: String(ageTo),
-      count: String(PAGE_SIZE), offset: String(offset), fields: 'photo_max_orig,has_photo',
+      count: String(PAGE_SIZE), offset: String(offset), fields: 'photo_max_orig,has_photo,verified,followers_count',
     });
     script.referrerPolicy = 'no-referrer';
     script.src = ENDPOINT + '?' + params;
@@ -170,6 +244,41 @@ async function decodeImage(blob) {
     image.onerror = () => { URL.revokeObjectURL(url); reject(Error('Не удалось открыть изображение для аугментации.')); };
     image.src = url;
   });
+}
+
+function scoreDecodedImage(image) {
+  const sourceWidth = image.width || image.naturalWidth;
+  const sourceHeight = image.height || image.naturalHeight;
+  if (!sourceWidth || !sourceHeight) throw Error('У изображения отсутствует размер.');
+  // Small samples keep the search responsive while preserving enough detail for
+  // blur, exposure and contrast measurements.
+  const scale = Math.min(1, 160 / Math.max(sourceWidth, sourceHeight));
+  const width = Math.max(3, Math.round(sourceWidth * scale));
+  const height = Math.max(3, Math.round(sourceHeight * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  try {
+    const context = canvas.getContext('2d', {willReadFrequently: true});
+    if (!context) throw Error('Браузер не поддерживает чтение изображения.');
+    context.drawImage(image, 0, 0, width, height);
+    return computeImageQualityScore({width, height, data: context.getImageData(0, 0, width, height).data});
+  } finally {
+    canvas.width = canvas.height = 0;
+  }
+}
+
+export async function measureImageQuality(url) {
+  const response = await fetch(url, {
+    credentials: 'omit', referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(15000),
+  });
+  if (!response.ok) throw Error('Не удалось получить изображение для оценки качества.');
+  const image = await decodeImage(await response.blob());
+  try {
+    return scoreDecodedImage(image);
+  } finally {
+    image.close?.();
+  }
 }
 
 async function augmentImage(image) {
@@ -221,28 +330,97 @@ export function setupVkAvatars() {
   const autoPick = get('vk-avatars-auto-pick');
   const clearSelection = get('vk-avatars-clear-selection');
   const downloadSelected = get('vk-avatars-download');
+  const verificationFilter = get('vk-avatars-verification');
+  const maxFollowersFilter = get('vk-avatars-max-followers');
+  const includeMissingFollowers = get('vk-avatars-include-missing');
+  const qualityThreshold = get('vk-avatars-quality-threshold');
+  const qualityValue = get('vk-avatars-quality-value');
+  const qualitySort = get('vk-avatars-quality-sort');
+  const includeUnknownQuality = get('vk-avatars-include-unknown-quality');
+  const filterCount = get('vk-avatars-filter-count');
+  const resetFilters = get('vk-avatars-filters-reset');
   const exportStatus = get('vk-avatars-export-status');
   const augmentationToggle = get('vk-avatars-augment');
   const variantsInput = get('vk-avatars-variants');
   let search = null;
   let offset = 0;
   let busy = false;
-  let shown = 0;
+  let profiles = [];
+  let matchingCount = 0;
   let seen = new Set();
   let selected = new Map();
   let exportBusy = false;
   let autoPicking = false;
+  if (!['all', 'verified', 'unverified'].includes(verificationFilter.value)) verificationFilter.value = 'all';
+  if (!maxFollowersFilter.value) maxFollowersFilter.value = '500';
+  if (!qualityThreshold.value) qualityThreshold.value = '0';
+  qualityValue.textContent = Number(qualityThreshold.value).toFixed(1);
+
+  function readProfileFilters() {
+    const parsedMax = Number(maxFollowersFilter.value);
+    const parsedQuality = Number(qualityThreshold.value);
+    return {
+      verification: ['all', 'verified', 'unverified'].includes(verificationFilter.value) ? verificationFilter.value : 'all',
+      maxFollowers: Number.isSafeInteger(parsedMax) && parsedMax >= 0 ? parsedMax : 500,
+      includeMissingFollowers: includeMissingFollowers.checked !== false,
+      minQuality: Number.isFinite(parsedQuality) ? Math.min(10, Math.max(0, parsedQuality)) : 0,
+      includeUnknownQuality: includeUnknownQuality.checked !== false,
+    };
+  }
+
+  let profileFilters = readProfileFilters();
+
+  function matchesProfile(user) {
+    return profileMatchesFilters(user, profileFilters);
+  }
+
+  function renderFilteredResults() {
+    const matching = profiles.filter(matchesProfile);
+    if (qualitySort.value === 'desc') {
+      matching.sort((a, b) => {
+        const aScore = Number(a.quality_score);
+        const bScore = Number(b.quality_score);
+        if (!Number.isFinite(aScore) && !Number.isFinite(bScore)) return 0;
+        if (!Number.isFinite(aScore)) return 1;
+        if (!Number.isFinite(bScore)) return -1;
+        return bScore - aScore;
+      });
+    }
+    const visibleIds = new Set(matching.map(user => user.id));
+    for (const id of selected.keys()) {
+      if (!visibleIds.has(id)) selected.delete(id);
+    }
+    results.replaceChildren();
+    matching.forEach(renderAvatar);
+    matchingCount = matching.length;
+    filterCount.textContent = `Подходит: ${matching.length} из ${profiles.length}`;
+    updateSelection();
+    return matching.length;
+  }
+
+  function applyProfileFilters() {
+    profileFilters = readProfileFilters();
+    qualityValue.textContent = profileFilters.minQuality.toFixed(1);
+    if (!busy) renderFilteredResults();
+  }
 
   function updateSelection() {
     selectedCount.textContent = 'Выбрано: ' + selected.size;
     clearSelection.disabled = exportBusy || selected.size === 0;
     downloadSelected.disabled = exportBusy || selected.size === 0;
-    autoPick.disabled = exportBusy || autoPicking || shown === 0;
+    autoPick.disabled = exportBusy || autoPicking || matchingCount === 0;
     if (typeof results.querySelectorAll === 'function') {
       results.querySelectorAll('input[type="checkbox"]').forEach(input => { input.disabled = exportBusy; });
     }
     augmentationToggle.disabled = exportBusy;
     variantsInput.disabled = exportBusy;
+    verificationFilter.disabled = exportBusy;
+    maxFollowersFilter.disabled = exportBusy;
+    includeMissingFollowers.disabled = exportBusy;
+    qualityThreshold.disabled = exportBusy;
+    qualitySort.disabled = exportBusy;
+    includeUnknownQuality.disabled = exportBusy;
+    resetFilters.disabled = exportBusy;
   }
 
   function resetSelection() {
@@ -340,10 +518,30 @@ export function setupVkAvatars() {
     const preview = document.createElement('label');
     preview.className = 'vk-avatar-preview';
     const image = document.createElement('img');
+    image.crossOrigin = 'anonymous';
     image.src = photoUrl(user.photo_max_orig);
     image.alt = 'Аватарка из открытого профиля ВК';
     image.loading = 'lazy';
     image.referrerPolicy = 'no-referrer';
+    image.onload = () => {
+      // The score is calculated from the downloaded image, never from identity
+      // or facial attributes. A failed read simply leaves the item as unknown.
+      if (user.image_quality_score === undefined && user.quality_score === undefined && !user._quality_pending) {
+        user._quality_pending = true;
+        let scorePromise;
+        try { scorePromise = Promise.resolve(scoreDecodedImage(image)); }
+        catch { scorePromise = measureImageQuality(image.src); }
+        void scorePromise.then(score => {
+          user.image_quality_score = score;
+          user.quality_score = score;
+          if (!busy) renderFilteredResults();
+        }).catch(() => {
+          user.image_quality_score = null;
+          user.quality_score = null;
+          if (!busy) renderFilteredResults();
+        }).finally(() => { user._quality_pending = false; });
+      }
+    };
     const select = document.createElement('span');
     select.className = 'vk-avatar-select';
     const checkbox = document.createElement('input');
@@ -368,7 +566,14 @@ export function setupVkAvatars() {
       link.rel = 'noopener noreferrer';
       actions.append(link);
     }
-    card.append(preview, actions);
+    const quality = document.createElement('span');
+    quality.className = 'vk-avatar-quality';
+    const score = Number(user.image_quality_score ?? user.quality_score);
+    quality.textContent = Number.isFinite(score)
+      ? `Качество кадра: ${score.toFixed(1)}/10`
+      : (user.image_quality_score === null || user.quality_score === null)
+        ? 'Качество кадра: недоступно' : 'Качество кадра: проверяем…';
+    card.append(preview, quality, actions);
     results.append(card);
   }
 
@@ -385,12 +590,12 @@ export function setupVkAvatars() {
       for (const user of avatarItems(response.items)) {
         if (seen.has(user.id)) continue;
         seen.add(user.id);
-        renderAvatar(user);
-        shown++;
+        profiles.push(user);
       }
+      const matching = renderFilteredResults();
       more.hidden = offset >= response.count || response.items.length === 0;
-      status.textContent = shown
-        ? `Показано аватарок: ${shown}. Откройте фото, чтобы сохранить его на устройство.`
+      status.textContent = profiles.length
+        ? `Подходит по фильтрам: ${matching} из ${profiles.length}. Откройте фото, чтобы сохранить его на устройство.`
         : 'Открытых профилей с аватарками на этой странице нет. Попробуйте другие параметры или следующую страницу.';
     } catch (error) {
       status.textContent = error.message;
@@ -399,6 +604,7 @@ export function setupVkAvatars() {
       busy = false;
       submit.disabled = false;
       more.disabled = false;
+      renderFilteredResults();
       updateSelection();
     }
   }
@@ -535,14 +741,31 @@ export function setupVkAvatars() {
       ageTo: Number(get('vk-avatars-age-to').value),
     };
     offset = 0;
-    shown = 0;
+    profiles = [];
+    matchingCount = 0;
     seen = new Set();
     resetSelection();
     results.replaceChildren();
+    filterCount.textContent = 'Подходит: 0';
     more.hidden = true;
     loadPage();
   };
   more.onclick = loadPage;
+  verificationFilter.onchange = applyProfileFilters;
+  maxFollowersFilter.oninput = applyProfileFilters;
+  includeMissingFollowers.onchange = applyProfileFilters;
+  resetFilters.onclick = () => {
+    verificationFilter.value = 'all';
+    maxFollowersFilter.value = '500';
+    includeMissingFollowers.checked = true;
+    qualityThreshold.value = '0';
+    qualitySort.value = 'none';
+    includeUnknownQuality.checked = true;
+    applyProfileFilters();
+  };
+  qualityThreshold.oninput = applyProfileFilters;
+  qualitySort.onchange = applyProfileFilters;
+  includeUnknownQuality.onchange = applyProfileFilters;
   updateSelection();
   return returningFromVk;
 }
