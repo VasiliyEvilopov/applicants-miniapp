@@ -8,9 +8,9 @@
 <title>ApplicantsTools — склад откликов</title>
 <meta name="description" content="Склад юзернеймов и телефонов: партии, выдачи, история и сортировка. Mini App для Telegram.">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="style.css?v=18">
+<link rel="stylesheet" href="style.css?v=21">
 <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
-<script type="module" src="app.mjs?v=18"></script>
+<script type="module" src="app.mjs?v=21"></script>
 </head>
 <body>
 <div class="shell">
@@ -72,11 +72,8 @@
   <div class="card-title"><h2>Фильтры профилей</h2><button id="vk-avatars-filters-reset" class="text-button" type="button">Сбросить</button></div>
   <div class="vk-avatar-profile-filter-grid">
    <label for="vk-avatars-verification">Галочка VK<select id="vk-avatars-verification"><option value="all">Все профили</option><option value="verified">Только верифицированные</option><option value="unverified">Без верификации</option></select></label>
-   <label for="vk-avatars-max-followers">Максимум подписчиков<input id="vk-avatars-max-followers" type="number" min="0" step="1" value="500"></label>
-   <label for="vk-avatars-quality-threshold">Минимум качества кадра <output id="vk-avatars-quality-value">0.0</output><input id="vk-avatars-quality-threshold" type="range" min="0" max="10" step="0.1" value="0"></label>
-   <label for="vk-avatars-quality-sort">Сортировка качества<select id="vk-avatars-quality-sort"><option value="none">Как загружены</option><option value="desc">Сначала лучшее качество</option></select></label>
+   <label for="vk-avatars-max-followers">Максимум подписчиков<input id="vk-avatars-max-followers" type="number" min="0" step="1" value="" placeholder="Без лимита"><small class="hint">Пусто — без лимита</small></label>
    <label class="vk-avatar-missing-option"><input id="vk-avatars-include-missing" type="checkbox" checked> Оставлять профили без данных о подписчиках</label>
-   <label class="vk-avatar-missing-option"><input id="vk-avatars-include-unknown-quality" type="checkbox" checked> Оставлять кадры, которые ещё не удалось оценить</label>
   </div>
   <p id="vk-avatars-filter-count" class="hint" role="status">Подходит: 0</p>
  </section>
