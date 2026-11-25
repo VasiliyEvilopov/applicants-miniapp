@@ -163,11 +163,19 @@ export function qualityMatchesFilters(user, {minQuality = 0, includeUnknownQuali
   return score >= threshold;
 }
 
+// VK has returned this flag under both `verified` and `is_verified` in
+// different API responses/export formats. Normalize both shapes so the
+// verification filter does not silently treat a verified profile as unknown.
+export function isVerifiedProfile(user = {}) {
+  const value = user.verified ?? user.is_verified;
+  return value === 1 || value === true || value === '1' || value === 'true';
+}
+
 export function profileMatchesFilters(user, {
   verification = 'all', maxFollowers = 500, includeMissingFollowers = true,
   minQuality = 0, includeUnknownQuality = true,
 } = {}) {
-  const verified = user.verified === 1 || user.verified === true;
+  const verified = isVerifiedProfile(user);
   if (verification === 'verified' && !verified) return false;
   if (verification === 'unverified' && verified) return false;
   if (maxFollowers !== null) {
