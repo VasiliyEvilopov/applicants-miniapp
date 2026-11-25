@@ -3,6 +3,11 @@ const PAGE_SIZE = 24;
 const VK_APP_ID = 54921515;
 const VK_REDIRECT_URL = 'https://vasiliyevilopov.github.io/applicants-miniapp/';
 
+function tokenStorageKey() {
+  const userId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id ?? 'browser';
+  return 'applicants_vk_token_v1_' + userId;
+}
+
 export async function authorizeVk(sdk = globalThis.VKIDSDK) {
   if (!sdk) throw Error('Не удалось загрузить модуль входа VK. Обновите страницу и повторите.');
   sdk.Config.init({
@@ -117,25 +122,83 @@ export function setupVkAvatars() {
   const more = get('vk-avatars-more');
   const login = get('vk-avatars-login');
   const authStatus = get('vk-avatars-auth-status');
+  const token = get('vk-avatars-token');
+  const saveToken = get('vk-avatars-save-token');
+  const changeToken = get('vk-avatars-change-token');
   let search = null;
   let offset = 0;
   let busy = false;
   let shown = 0;
   let seen = new Set();
 
+  function showSavedKey() {
+    token.readOnly = true;
+    saveToken.hidden = true;
+    changeToken.hidden = false;
+    login.textContent = 'Сменить аккаунт VK';
+    authStatus.classList.remove('error');
+    authStatus.textContent = 'Ключ сохранён на этом устройстве и подставляется при открытии приложения.';
+  }
+
+  function persistKey() {
+    const value = token.value.trim();
+    authStatus.classList.remove('error');
+    if (!value) {
+      authStatus.textContent = 'Введите пользовательский ключ VK.';
+      authStatus.classList.add('error');
+      return false;
+    }
+    try {
+      localStorage.setItem(tokenStorageKey(), value);
+      token.value = value;
+      showSavedKey();
+      return true;
+    } catch {
+      authStatus.textContent = 'Не удалось сохранить ключ на устройстве. Разрешите хранилище для сайта. Сейчас ключ доступен в этой странице.';
+      authStatus.classList.add('error');
+      return false;
+    }
+  }
+
+  try {
+    const saved = localStorage.getItem(tokenStorageKey());
+    if (saved) {
+      token.value = saved;
+      showSavedKey();
+    }
+  } catch {
+    authStatus.textContent = 'Хранилище устройства недоступно. Разрешите сохранение данных для сайта.';
+    authStatus.classList.add('error');
+  }
+  saveToken.onclick = persistKey;
+  changeToken.onclick = () => {
+    token.readOnly = false;
+    saveToken.hidden = false;
+    changeToken.hidden = true;
+    authStatus.classList.remove('error');
+    authStatus.textContent = 'Введите новый ключ и нажмите «Сохранить ключ».';
+    token.focus();
+    token.select();
+  };
+
   login.onclick = async () => {
     login.disabled = true;
+    saveToken.disabled = true;
+    changeToken.disabled = true;
+    token.disabled = true;
     authStatus.classList.remove('error');
     authStatus.textContent = 'Завершите вход в открывшемся окне VK…';
     try {
-      get('vk-avatars-token').value = await authorizeVk();
-      login.textContent = 'Сменить аккаунт VK';
-      authStatus.textContent = 'VK подключён. Можно искать аватарки.';
+      token.value = await authorizeVk();
+      if (persistKey()) authStatus.textContent = 'VK подключён. Ключ сохранён на этом устройстве.';
     } catch (error) {
       authStatus.textContent = authErrorMessage(error);
       authStatus.classList.add('error');
     } finally {
       login.disabled = false;
+      saveToken.disabled = false;
+      changeToken.disabled = false;
+      token.disabled = false;
     }
   };
 
@@ -195,6 +258,11 @@ export function setupVkAvatars() {
   form.onsubmit = event => {
     event.preventDefault();
     if (busy) return;
+    if (!token.value.trim()) {
+      persistKey();
+      return;
+    }
+    persistKey();
     search = {
       query: get('vk-avatars-query').value,
       ageFrom: Number(get('vk-avatars-age-from').value),

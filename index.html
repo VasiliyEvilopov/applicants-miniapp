@@ -7,10 +7,10 @@
 <title>ApplicantsTools — склад откликов</title>
 <meta name="description" content="Склад юзернеймов и телефонов: партии, выдачи, история и сортировка. Mini App для Telegram.">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="style.css?v=11">
+<link rel="stylesheet" href="style.css?v=12">
 <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
 <script defer src="vkid-sdk-2.6.10.js"></script>
-<script type="module" src="app.mjs?v=11"></script>
+<script type="module" src="app.mjs?v=12"></script>
 </head>
 <body>
 <div class="shell">
@@ -43,14 +43,15 @@
  <p class="intro">Открытые профили девушек от 18 лет. Выбирайте подходящие фотографии в результатах.</p>
  <section class="card vk-avatar-connect">
   <button id="vk-avatars-login" class="primary" type="button">Войти через VK</button>
-  <p id="vk-avatars-auth-status" class="hint" role="status">Войдите, чтобы получить ключ для поиска. Подключение действует до закрытия страницы или истечения ключа.</p>
+  <p id="vk-avatars-auth-status" class="hint" role="status">Введите ключ один раз или войдите через VK. Ключ сохранится на этом устройстве.</p>
  </section>
  <form id="vk-avatars-form" class="card">
-  <details>
-   <summary>Ввести готовый ключ вручную</summary>
-   <label for="vk-avatars-token">Пользовательский ключ VK API</label>
-   <input id="vk-avatars-token" type="password" autocomplete="off" spellcheck="false" placeholder="Подставится после входа через VK">
-  </details>
+  <label for="vk-avatars-token">Пользовательский ключ VK API</label>
+  <input id="vk-avatars-token" type="password" autocomplete="off" spellcheck="false" placeholder="Введите ключ один раз">
+  <div class="actions">
+   <button id="vk-avatars-save-token" type="button">Сохранить ключ</button>
+   <button id="vk-avatars-change-token" type="button" hidden>Изменить ключ</button>
+  </div>
   <div class="vk-avatar-filters">
    <div><label for="vk-avatars-query">Имя — необязательно</label><input id="vk-avatars-query" type="text" maxlength="100" placeholder="Например, Анна"></div>
    <div><label for="vk-avatars-age-from">Возраст от</label><input id="vk-avatars-age-from" type="number" min="18" max="100" value="18" required></div>

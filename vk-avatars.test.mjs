@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {photoUrl, avatarItems, searchAvatars, setupVkAvatars, authorizeVk} from './vk-avatars.mjs';
 
-function browserFixture(respond) {
+function browserFixture(respond, stored = new Map()) {
   const elements = new Map();
   function element() {
     return {
@@ -11,6 +11,8 @@ function browserFixture(respond) {
       append(...children) { this.children.push(...children); },
       replaceChildren() { this.children = []; },
       remove() { this.removed = true; },
+      focus() {},
+      select() {},
     };
   }
   const get = id => {
@@ -19,6 +21,10 @@ function browserFixture(respond) {
   };
   const scripts = [];
   globalThis.window = {};
+  globalThis.localStorage = {
+    getItem: key => stored.get(key) ?? null,
+    setItem: (key, value) => stored.set(key, value),
+  };
   globalThis.document = {
     getElementById: get,
     createElement: element,
@@ -27,7 +33,7 @@ function browserFixture(respond) {
       queueMicrotask(() => respond(script));
     }},
   };
-  return {get, scripts};
+  return {get, scripts, stored};
 }
 
 const user = id => ({id, is_closed: false, has_photo: 1, photo_max_orig: `https://sun9-1.userapi.com/photo${id}.jpg`});
@@ -70,6 +76,7 @@ test('VK login fills the search token and restores the button after a cancelled 
   setupVkAvatars();
   await fixture.get('vk-avatars-login').onclick();
   assert.equal(fixture.get('vk-avatars-token').value, 'fixture-token');
+  assert.equal([...fixture.stored.values()][0], 'fixture-token');
   assert.match(fixture.get('vk-avatars-auth-status').textContent, /подключён/);
   assert.equal(fixture.get('vk-avatars-login').disabled, false);
   globalThis.VKIDSDK.Auth.login = async () => { throw {code: 102}; };
@@ -78,6 +85,64 @@ test('VK login fills the search token and restores the button after a cancelled 
   assert.equal(fixture.get('vk-avatars-login').disabled, false);
   assert.equal(fixture.get('vk-avatars-token').value, 'fixture-token');
   delete globalThis.VKIDSDK;
+});
+
+test('manual key survives reopen and can be replaced without altering contact data', () => {
+  const stored = new Map([['applicants_v1', 'contact-data-fixture']]);
+  let fixture = browserFixture(() => {}, stored);
+  setupVkAvatars();
+  fixture.get('vk-avatars-token').value = '  first-fixture-token  ';
+  fixture.get('vk-avatars-save-token').onclick();
+  assert.equal(fixture.get('vk-avatars-token').readOnly, true);
+  fixture = browserFixture(() => {}, stored);
+  setupVkAvatars();
+  assert.equal(fixture.get('vk-avatars-token').value, 'first-fixture-token');
+  assert.equal(fixture.get('vk-avatars-save-token').hidden, true);
+  assert.equal(fixture.get('vk-avatars-change-token').hidden, false);
+  fixture.get('vk-avatars-change-token').onclick();
+  assert.equal(fixture.get('vk-avatars-token').readOnly, false);
+  fixture.get('vk-avatars-token').value = '';
+  assert.equal(fixture.get('vk-avatars-save-token').onclick(), false);
+  assert.match(fixture.get('vk-avatars-auth-status').textContent, /Введите/);
+  fixture.get('vk-avatars-token').value = 'second-fixture-token';
+  assert.equal(fixture.get('vk-avatars-save-token').onclick(), true);
+  fixture = browserFixture(() => {}, stored);
+  setupVkAvatars();
+  assert.equal(fixture.get('vk-avatars-token').value, 'second-fixture-token');
+  assert.equal(stored.get('applicants_v1'), 'contact-data-fixture');
+});
+
+test('failed persistence keeps the previous key and reports the failure', () => {
+  const stored = new Map();
+  let fixture = browserFixture(() => {}, stored);
+  setupVkAvatars();
+  fixture.get('vk-avatars-token').value = 'first-fixture-token';
+  fixture.get('vk-avatars-save-token').onclick();
+  fixture.get('vk-avatars-change-token').onclick();
+  fixture.get('vk-avatars-token').value = 'replacement-fixture-token';
+  globalThis.localStorage.setItem = () => { throw Error('quota'); };
+  assert.equal(fixture.get('vk-avatars-save-token').onclick(), false);
+  assert.match(fixture.get('vk-avatars-auth-status').textContent, /Не удалось сохранить/);
+  fixture = browserFixture(() => {}, stored);
+  setupVkAvatars();
+  assert.equal(fixture.get('vk-avatars-token').value, 'first-fixture-token');
+});
+
+test('saved keys are separated for Telegram accounts on the same device', () => {
+  const stored = new Map();
+  let fixture = browserFixture(() => {}, stored);
+  window.Telegram = {WebApp: {initDataUnsafe: {user: {id: 1}}}};
+  setupVkAvatars();
+  fixture.get('vk-avatars-token').value = 'account-one-fixture';
+  fixture.get('vk-avatars-save-token').onclick();
+  fixture = browserFixture(() => {}, stored);
+  window.Telegram = {WebApp: {initDataUnsafe: {user: {id: 2}}}};
+  setupVkAvatars();
+  assert.equal(fixture.get('vk-avatars-token').value, '');
+  fixture = browserFixture(() => {}, stored);
+  window.Telegram = {WebApp: {initDataUnsafe: {user: {id: 1}}}};
+  setupVkAvatars();
+  assert.equal(fixture.get('vk-avatars-token').value, 'account-one-fixture');
 });
 
 test('avatar results allow public profiles and trusted HTTPS photo hosts', () => {
