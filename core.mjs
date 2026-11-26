@@ -104,3 +104,15 @@ export function sort(text,{dedup=true,norm=true,drop=true,sep='blank'}={}) {
  if(phones.length){const block=(sep==='title'?'Номера:\n':'')+phones.join('\n');result=result?result+(sep==='none'?'\n':'\n\n')+block:block;}
  return {result,phones,duplicates};
 }
+
+// Remove phone-like digit sequences from arbitrary text. By default only
+// compact values beginning with 7 are removed (for example 7900494). The
+// spaced form is opt-in because spaces may be meaningful in ordinary text.
+export function removeNumberSequences(text, {includeSpaced = false} = {}) {
+ const compact = /(?<!\d)7\d{6,14}(?!\d)/g;
+ const spaced = /(?<!\d)\+?7(?:[\s().-]*\d){6,14}(?!\d)/g;
+ const pattern = includeSpaced ? spaced : compact;
+ let removed = 0;
+ const result = String(text ?? '').split(/\r?\n/).map(line => line.replace(pattern, () => { removed++; return ''; }).replace(/[ \t]{2,}/g, ' ').trim()).join('\n');
+ return {text: result, removed};
+}
