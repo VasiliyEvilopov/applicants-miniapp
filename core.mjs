@@ -113,6 +113,6 @@ export function removeNumberSequences(text, {includeSpaced = false} = {}) {
  const spaced = /(?<!\d)\+?7(?:[\s().-]*\d){6,14}(?!\d)/g;
  const pattern = includeSpaced ? spaced : compact;
  let removed = 0;
- const result = String(text ?? '').split(/\r?\n/).map(line => line.replace(pattern, () => { removed++; return ''; }).replace(/[ \t]{2,}/g, ' ').trim()).join('\n');
+ const result = String(text ?? '').split(/\r?\n/).map(line => line.replace(pattern, () => { removed++; return ''; }).replace(/[ \t]{2,}/g, ' ').trim()).filter(Boolean).join('\n');
  return {text: result, removed};
 }
