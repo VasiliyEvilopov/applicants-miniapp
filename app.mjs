@@ -1,5 +1,5 @@
 import {CloudStore,LocalStore,EMPTY,validate} from './storage.mjs?v=9';
-import {add,take,takeMixed,mixedCounts,issueText,restore,isPhone,sort,removeNumberSequences} from './core.mjs?v=10';
+import {add,take,takeMixed,mixedCounts,issueText,restore,isPhone,sort,removeNumberSequences} from './core.mjs?v=11';
 const $=id=>document.getElementById(id),tg=window.Telegram?.WebApp;
 const inTelegram=!!(tg?.initData && tg?.initDataUnsafe?.user);
 let store,data=EMPTY(),ready=false,busy=false,sortResult={result:'',phones:[],duplicates:0},currentIssue=null;
