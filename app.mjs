@@ -1,5 +1,5 @@
 import {CloudStore,LocalStore,EMPTY,validate} from './storage.mjs?v=9';
-import {add,take,takeMixed,mixedCounts,issueText,restore,isPhone,sort} from './core.mjs?v=9';
+import {add,take,takeMixed,mixedCounts,issueText,restore,isPhone,sort,removeNumberSequences} from './core.mjs?v=10';
 const $=id=>document.getElementById(id),tg=window.Telegram?.WebApp;
 const inTelegram=!!(tg?.initData && tg?.initDataUnsafe?.user);
 let store,data=EMPTY(),ready=false,busy=false,sortResult={result:'',phones:[],duplicates:0},currentIssue=null;
@@ -8,7 +8,7 @@ const date=ts=>new Date(ts).toLocaleString('ru-RU',{day:'numeric',month:'short',
 function toast(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').hidden=true,4000);}
 function notice(text,error=false){$('notice').textContent=text;$('notice').classList.toggle('error',error);$('notice').hidden=!text;}
 function setStatus(text,error=false){$('storage-status').replaceChildren();const dot=document.createElement('i');$('storage-status').append(dot,document.createTextNode(text));$('storage-status').classList.toggle('error',error);}
-function switchView(view){for(const name of ['stock','sort','history','cloner'])$('view-'+name).hidden=name!==view;document.querySelectorAll('[data-view]').forEach(b=>{b.removeAttribute('aria-current');if(b.dataset.view===view)b.setAttribute('aria-current','page');});tg?.BackButton?.hide();}
+function switchView(view){for(const name of ['stock','sort','remove-numbers','history','cloner'])$('view-'+name).hidden=name!==view;document.querySelectorAll('[data-view]').forEach(b=>{b.removeAttribute('aria-current');if(b.dataset.view===view)b.setAttribute('aria-current','page');});tg?.BackButton?.hide();}
 function counts(){let u=0,p=0;for(const b of data.stock)for(const x of b.items)isPhone(x)?p++:u++;return {u,p};}
 function wanted(k){const v=$('take-'+k).value.trim().toLowerCase(),max=counts()[k];return ['all','все'].includes(v)?max:Math.min(max,/^\d+$/.test(v)?Number(v):0);}
 function updateTake(){const u=wanted('u'),p=wanted('p');$('take-summary').textContent=u||p?`К выдаче: ${number(u)} юзернеймов и ${number(p)} номеров`:'Выберите количество для выдачи';$('take').disabled=!ready||busy||!(u||p);updateMixedTake();}
@@ -73,6 +73,7 @@ function download(name,text,type='text/plain'){const url=URL.createObjectURL(new
 async function copy(text){if(!text){toast('Список пуст.');return;}try{await navigator.clipboard.writeText(text);toast('Скопировано.');}catch{const field=$('output-dialog').open?$('output-text'):$('sort-output');field.focus();field.select();toast('Текст выделен. Нажмите «Копировать» в меню выделения.');}}
 function showIssue(t){currentIssue=t;$('output-title').textContent=`Контакты · ${number(t.users.length+t.phones.length)}`;$('output-description').textContent=`${date(t.takenAt)} · юзернеймов: ${t.users.length} · номеров: ${t.phones.length}`;$('output-text').value=issueText(t);$('output-dialog').showModal();}
 function runSort(){sortResult=sort($('sort-input').value,{dedup:$('sort-dedup').checked,norm:$('sort-norm').checked,drop:$('sort-drop').checked,sep:$('sort-sep').value});$('sort-output').value=sortResult.result;$('sort-stats').textContent=`Найдено номеров: ${sortResult.phones.length} · повторов: ${sortResult.duplicates}`;$('sort-to-stock').disabled=!sortResult.phones.length;try{sessionStorage.setItem('applicants-sort',JSON.stringify({text:$('sort-input').value,dedup:$('sort-dedup').checked,norm:$('sort-norm').checked,drop:$('sort-drop').checked,sep:$('sort-sep').value}));}catch{}}
+function runRemoveNumbers(){const result=removeNumberSequences($('remove-numbers-input').value,{includeSpaced:$('remove-spaced').checked});$('remove-numbers-output').value=result.text;$('remove-numbers-stats').textContent=`Удалено номеров: ${result.removed}`;}
 async function readFile(file){if(file.size>5*1024*1024)throw Error('Выберите файл до 5 МБ.');const bytes=await file.arrayBuffer();try{return new TextDecoder('utf-8',{fatal:true}).decode(bytes)}catch{return new TextDecoder('windows-1251').decode(bytes)}}
 function bindFile(id,fn){$(id).onchange=async e=>{const file=e.target.files[0];if(!file)return;try{await fn(await readFile(file),file.name)}catch(error){notice(error.message,true)}finally{e.target.value=''}};}
 $('refresh').onclick=reload;
@@ -137,6 +138,7 @@ $('export').onclick=()=>{if(ready)download('sklad.json',JSON.stringify(data,null
 bindFile('import',async text=>{if(!ready||busy)return;const imported=validate(JSON.parse(text));const count=imported.stock.reduce((n,b)=>n+b.items.length,0);if(await confirmAction('Импортировать склад?',`В файле ${count} контактов и ${imported.issued.length} выдач. Текущий склад и история будут заменены. Сначала скачайте резервную копию, если хотите их сохранить.`,'Импортировать'))await mutate(d=>{d.stock=imported.stock;d.issued=imported.issued;},()=>toast(`Импортировано ${count} контактов.`));});
 $('sort-input').oninput=runSort;for(const id of ['sort-dedup','sort-norm','sort-drop','sort-sep'])$(id).onchange=runSort;
 $('sort-clear').onclick=()=>{$('sort-input').value='';runSort();};$('sort-copy').onclick=()=>copy(sortResult.result);$('sort-download').onclick=()=>download('sorted.txt',sortResult.result);
+$('remove-numbers-input').oninput=runRemoveNumbers;$('remove-spaced').onchange=runRemoveNumbers;$('remove-numbers').onclick=runRemoveNumbers;$('remove-numbers-clear').onclick=()=>{$('remove-numbers-input').value='';runRemoveNumbers();};$('remove-numbers-copy').onclick=()=>copy($('remove-numbers-output').value);
 $('sort-to-stock').onclick=()=>{$('intake-text').value=sortResult.phones.join('\n');$('batch-name').value='Из сортировки';intakeHint();switchView('stock');$('intake-text').focus();$('intake-text').scrollIntoView({block:'center',behavior:'smooth'});toast('Номера перенесены в форму. Нажмите «Добавить на склад».');};
 try{const s=JSON.parse(sessionStorage.getItem('applicants-sort'));if(s){$('sort-input').value=s.text||'';for(const k of ['dedup','norm','drop'])$('sort-'+k).checked=s[k]!==false;$('sort-sep').value=s.sep||'blank';}}catch{}
 window.addEventListener('storage',e=>{if(e.key==='applicants_v1'&&ready&&!busy)reload();});
